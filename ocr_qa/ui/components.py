@@ -49,8 +49,33 @@ def status_color(status: str) -> str:
 APP_CSS = """
 <style>
 :root { --good:#1a9850; --warn:#e8870c; --bad:#d73027; --na:#9aa0a6; }
-.block-container { padding-top: 1.4rem; max-width: 1500px; }
+.block-container { padding-top: 1.2rem; max-width: 1500px; }
 h1, h2, h3 { letter-spacing:-.01em; }
+
+/* hero header */
+.hero { background:linear-gradient(100deg,#1f2a44 0%,#2f6fed 100%); color:#fff;
+  border-radius:14px; padding:1.0rem 1.3rem; margin:.1rem 0 .5rem;
+  box-shadow:0 6px 18px rgba(47,111,237,.18); }
+.hero h1 { color:#fff; font-size:1.5rem; margin:0; }
+.hero p { color:#dbe6ff; margin:.2rem 0 0; font-size:.9rem; }
+
+/* status legend */
+.legend { display:flex; gap:1rem; flex-wrap:wrap; font-size:.8rem; color:#555;
+  align-items:center; margin:.1rem 0 .2rem; }
+.legend .sw { display:inline-block; width:11px; height:11px; border-radius:50%;
+  margin-right:.3rem; vertical-align:middle; }
+
+/* guide */
+.guide-group { font-weight:800; font-size:1.05rem; margin:.7rem 0 .35rem;
+  padding-left:.5rem; border-left:5px solid #ccc; }
+.src-chip { display:inline-block; background:#eef2f7; border:1px solid #dde3ea;
+  color:#33415c; padding:.06rem .45rem; border-radius:6px; margin:.1rem .2rem 0 0;
+  font-size:.72rem; font-family:ui-monospace,Consolas,monospace; }
+.conf { display:inline-block; padding:.05rem .45rem; border-radius:999px;
+  font-size:.66rem; font-weight:700; color:#fff; }
+.conf.Definite { background:#b00020; }
+.conf.Statistical { background:#e8870c; }
+.conf.Mixed { background:#6a51c9; }
 
 /* nav pills */
 div[data-testid="stHorizontalBlock"] .ocrqa-nav { }
@@ -121,6 +146,131 @@ def inject_css() -> None:
     import streamlit as st
 
     st.markdown(APP_CSS, unsafe_allow_html=True)
+
+
+def render_hero() -> None:
+    import streamlit as st
+
+    st.markdown(
+        "<div class='hero'><h1>🔎 OCR Quality Validation — Chandra</h1>"
+        "<p>Statistically validates page-wise Chandra OCR output, pinpoints where "
+        "errors are, and tells you which pages a human must check.</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_status_legend() -> None:
+    import streamlit as st
+
+    st.markdown(
+        "<div class='legend'>"
+        f"<span><span class='sw' style='background:{_STATUS_COLOR['good']}'></span>Good</span>"
+        f"<span><span class='sw' style='background:{_STATUS_COLOR['warn']}'></span>Warn</span>"
+        f"<span><span class='sw' style='background:{_STATUS_COLOR['bad']}'></span>Bad</span>"
+        "<span><span class='conf Definite'>DEFINITE</span> structural fact</span>"
+        "<span><span class='conf Statistical'>STATISTICAL</span> threshold flag</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Metrics Guide
+# --------------------------------------------------------------------------- #
+def render_metrics_guide() -> None:
+    """Self-documenting reference: how scoring works, which file feeds each
+    metric, and a per-metric table with formulas + examples."""
+    import streamlit as st
+
+    from ocr_qa.config import DEFAULT_CONFIG
+    from ocr_qa.metrics.catalog import CATALOG, FILE_MAP, GROUPS, weight_for
+    from ocr_qa.metrics.registry import METRICS
+
+    by_key = {m.key: m for m in METRICS}
+    cfg = DEFAULT_CONFIG
+
+    st.subheader("📖 Metrics Guide")
+    st.caption("What each statistical metric measures, the file it reads, its "
+               "formula, and a worked example.")
+
+    # ---- how scoring works ----
+    with st.container(border=True):
+        st.markdown("#### How the score works")
+        st.markdown(
+            f"- **PQS** (Page Quality Score) = weighted average of the metric "
+            f"scores that applied to the page (weights renormalised over available "
+            f"metrics).\n"
+            f"- **DQS** (Document Quality Score) = token-weighted mean of every "
+            f"page's PQS.\n"
+            f"- A page is **faulty** if `PQS < {cfg.t_page:.0f}` **or** any **HARD** "
+            f"condition fires (inference_failed on content · mojibake ≥ "
+            f"{cfg.ced_mojibake_bad} · repetition loop · LVR < "
+            f"{cfg.lexical_warn*100:.0f}% · native CER > {cfg.xsa_cer_bad*100:.0f}% · "
+            f"block-count mismatch).\n"
+            f"- **Document = PASSED** only if `DQS ≥ {cfg.t_doc:.0f}` **and** faulty "
+            f"ratio ≤ {cfg.doc_flag_ratio*100:.0f}% **and** no page hit a HARD "
+            f"condition."
+        )
+        render_status_legend()
+
+    # ---- file -> metric map ----
+    with st.expander("Which file feeds which metric", expanded=False):
+        st.dataframe(
+            [{"File / resource": f, "Contains": c, "Used by": u}
+             for f, c, u in FILE_MAP],
+            use_container_width=True, hide_index=True,
+        )
+
+    # ---- summary table ----
+    st.markdown("#### All 17 metrics at a glance")
+    rows = []
+    for i, e in enumerate(CATALOG, start=1):
+        m = by_key.get(e["key"])
+        rows.append({
+            "#": i,
+            "Key": e["key"],
+            "Metric": m.name if m else e["key"],
+            "Group": GROUPS[e["group"]][0],
+            "Reads": ", ".join(e["reads"][:3]) + ("…" if len(e["reads"]) > 3 else ""),
+            "Confidence": e["confidence"],
+            "Weight": f"{weight_for(e['key']):.2f}",
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True, height=430)
+
+    # ---- per-group detail cards ----
+    st.markdown("#### Detail & examples")
+    last_group = None
+    for e in CATALOG:
+        if e["group"] != last_group:
+            last_group = e["group"]
+            label, color = GROUPS[e["group"]]
+            st.markdown(
+                f"<div class='guide-group' style='border-left-color:{color}'>"
+                f"{label}</div>", unsafe_allow_html=True,
+            )
+        m = by_key.get(e["key"])
+        with st.container(border=True):
+            st.markdown(
+                f"<div class='mhead'>"
+                f"<span class='mname'>{html.escape(m.name if m else e['key'])}</span>"
+                f"<span class='mkey'>{e['key']}</span>"
+                f"<span class='conf {e['confidence']}'>{e['confidence'].upper()}</span>"
+                f"<span class='mscore' style='font-size:.8rem;color:#888'>"
+                f"weight {weight_for(e['key']):.2f}</span></div>",
+                unsafe_allow_html=True,
+            )
+            if m and m.what_it_measures:
+                st.markdown(f"<span class='val'>{html.escape(m.what_it_measures)}</span>",
+                            unsafe_allow_html=True)
+            st.markdown("<div class='lbl'>Formula</div>"
+                        f"<div class='formula'>{html.escape(e['formula'])}</div>",
+                        unsafe_allow_html=True)
+            st.markdown("<div class='lbl'>Reads</div>"
+                        + "".join(f"<span class='src-chip'>{html.escape(s)}</span>"
+                                  for s in e["reads"]),
+                        unsafe_allow_html=True)
+            st.markdown(f"<div class='example'>💡 <b>Example:</b> "
+                        f"{html.escape(e['example'])}</div>", unsafe_allow_html=True)
 
 
 def _badge(status: str) -> str:

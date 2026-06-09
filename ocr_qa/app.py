@@ -36,7 +36,9 @@ from ocr_qa.ui.components import (
     overlay_error_boxes,
     render_error_locations,
     render_fault_chips,
+    render_hero,
     render_metric_list,
+    render_metrics_guide,
     render_verdict_badge,
     score_gauge,
     status_color,
@@ -44,8 +46,11 @@ from ocr_qa.ui.components import (
 
 st.set_page_config(page_title="OCR Quality Validation", layout="wide", page_icon="🔎")
 
-STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict", "Export"]
-STAGE_ICONS = ["📥", "⚙️", "🚩", "✅", "⚖️", "📦"]
+STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict",
+          "Export", "Guide"]
+STAGE_ICONS = ["📥", "⚙️", "🚩", "✅", "⚖️", "📦", "📖"]
+# stages reachable before any analysis has run
+ALWAYS_ON = {"Ingest", "Guide"}
 
 
 # --------------------------------------------------------------------------- #
@@ -569,7 +574,7 @@ def render_nav():
     ss = st.session_state
     cols = st.columns(len(STAGES))
     for i, name in enumerate(STAGES):
-        disabled = name not in ("Ingest",) and ss.doc is None
+        disabled = name not in ALWAYS_ON and ss.doc is None
         active = ss.stage == name
         if cols[i].button(
             f"{STAGE_ICONS[i]} {i + 1}·{name}",
@@ -584,9 +589,7 @@ def render_nav():
 
 def main():
     inject_css()
-    st.markdown("## 🔎 OCR Quality Validation — Chandra")
-    st.caption("Statistically validates page-wise Chandra OCR output and surfaces "
-               "the pages a human must check.")
+    render_hero()
     cfg = sidebar_config()
     render_nav()
     st.divider()
@@ -604,6 +607,8 @@ def main():
         stage_verdict()
     elif stage == "Export":
         stage_export()
+    elif stage == "Guide":
+        render_metrics_guide()
 
 
 if __name__ == "__main__":

@@ -20,7 +20,19 @@ from ocr_qa.scoring.aggregate import build_document_report  # noqa: E402
 HERE = os.path.dirname(__file__)
 APP = os.path.normpath(os.path.join(HERE, "..", "app.py"))
 SAMPLE = os.path.normpath(os.path.join(HERE, "..", "sample"))
-STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict", "Export"]
+STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict",
+          "Export", "Guide"]
+
+
+def test_guide_renders_without_analysis():
+    """The Metrics Guide must work even before any document is analysed."""
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    at.session_state["stage"] = "Guide"
+    at.run()
+    assert not at.exception
+    body = " ".join(str(m.value) for m in at.markdown)
+    assert "Metrics Guide" in body or "How the score works" in body
 
 
 def _doc(folder):
