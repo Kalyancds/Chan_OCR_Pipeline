@@ -1,0 +1,18 @@
+[
+  {
+    "page_start": 0,
+    "page_end": 1,
+    "page_ids": [0, 1],
+    "header_path": [],
+    "chunk_title": "Nemluvio (Nemolizumab) — Fachinformation",
+    "token_count": 150,
+    "content": "## Nemluvio (Nemolizumab) — Fachinformation\n\nNemluvio ist ein subkutan anzuwendendes Biologikum mit dem Wirkstoff Nemolizumab. Das Arzneimittel von Galderma wird zur Behandlung der atopischen Dermatitis und der Prurigo nodularis bei erwachsenen Patienten eingesetzt. Der Gemeinsame Bundesausschuss bewertet den Zusatznutzen gemäß den geltenden Anforderungen.\n\nThis document summarizes the statistical evaluation of the therapy. The treatment has demonstrated a favourable benefit-risk profile in adult patients. Clinical studies confirmed consistent efficacy across the assessed endpoints, and the safety findings were aligned with the established profile of the substance.\n\n| Parameter | Wert |\n| --- | --- |\n| Dosis | 30 mg |\n| Intervall | 4 Wochen |\n| Applikation | subkutan |\n\n## Bewertung des Zusatznutzens\n\nThe committee reviewed the submitted evidence and concluded that the treatment provides a measurable benefit for the target population. The analysis followed predefined statistical methods and accounted for the relevant confounding factors throughout the assessment period.\n\nDie Wirksamkeit wurde in mehreren Studien bestätigt. Das Sicherheitsprofil blieb über den Zeitraum stabil. Die Therapie wurde von den Patienten gut vertragen.",
+    "table_metrics": {
+      "has_table": true,
+      "table_density": 0.2,
+      "table_char_ratio": 1.0,
+      "table_count": 1,
+      "table_chars": 120
+    }
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Write-Output \"PWD: $\\(Get-Location\\)\"; Write-Output \"Item count: $\\(\\(Get-ChildItem -Force | Measure-Object\\).Count\\)\"; python --version; Write-Output \"---\"; Get-Command libreoffice,soffice -ErrorAction SilentlyContinue | Select-Object Name,Source)",
+      "PowerShell(Get-ChildItem -Force | ForEach-Object { Write-Output \\(\"{0}`t{1}`t{2}\" -f $_.Mode, $_.Length, $_.Name\\) })",
+      "PowerShell(python -c \"import importlib.util as u; mods=['pydantic','bs4','lxml','pytest','streamlit','fitz','PIL','wordfreq','spellchecker','langdetect','jiwer','pandas']; [print\\(m, 'OK' if u.find_spec\\(m\\) else 'MISSING'\\) for m in mods]\")",
+      "PowerShell($env:PYTHONPATH = \"D:\\\\Pharma_6_5_2026\"; python -m pytest ocr_qa/tests/test_parser.py -q 2>&1 | Select-Object -Last 40)",
+      "PowerShell(python -m pip install --quiet wordfreq pyspellchecker langdetect jiwer 2>&1 | Select-Object -Last 15; Write-Output \"PIP_DONE exit=$LASTEXITCODE\")",
+      "PowerShell($ok=$false; for\\($i=0;$i -lt 25;$i++\\){ try { $r=Invoke-WebRequest -Uri \"http://localhost:8777/healthz\" -UseBasicParsing -TimeoutSec 3; if\\($r.StatusCode -eq 200\\){ Write-Output \"UP\"; $ok=$true; break } } catch {} ; Start-Sleep -Milliseconds 800 }; if\\(-not $ok\\){ Write-Output \"not up\" })",
+      "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(cd /d D:\\\\Pharma_6_5_2026)",
+      "Bash(powershell -Command \"\\(Get-Content ocr_qa\\\\app.py\\) -replace 'page_count_warning\\\\\\(\\\\\\)', 'render_page_audit\\(\\)' | Set-Content ocr_qa\\\\app.py -Encoding utf8\")"
+    ]
+  }
+}

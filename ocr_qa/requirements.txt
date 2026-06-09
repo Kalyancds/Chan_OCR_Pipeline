@@ -1,0 +1,28 @@
+# --- core / UI ---
+streamlit>=1.36
+pydantic>=2.6
+pandas>=2.0
+plotly>=5.20
+altair>=5.0
+
+# --- ingestion / rendering ---
+PyMuPDF>=1.24          # render pages ~200 DPI + native text layer
+Pillow>=10.0
+# LibreOffice headless is an EXTERNAL binary (DOCX/PPTX->PDF); not pip-installable.
+
+# --- parsing / markup ---
+beautifulsoup4>=4.12
+lxml>=5.0
+
+# --- text statistics ---
+wordfreq>=3.0
+pyspellchecker>=0.8
+langdetect>=1.0.9
+jiwer>=3.0             # CER / WER vs native text
+
+# --- optional perplexity backends (behind a flag; default 'ngram' needs none) ---
+# kenlm
+# transformers; torch        # gpt2-small backend
+
+# --- tests ---
+pytest>=8.0

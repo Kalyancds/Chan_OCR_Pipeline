@@ -1,0 +1,9 @@
+{
+  "doc_id": "bad_sample",
+  "source": "synthetic-garbled",
+  "num_pages": 2,
+  "page_stats": [
+    { "page_id": 1, "num_blocks": 13 },
+    { "page_id": 2, "num_blocks": 2 }
+  ]
+}

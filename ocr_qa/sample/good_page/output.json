@@ -1,0 +1,139 @@
+[
+  {
+    "id": "/page/1/Page/1",
+    "block_type": "Page",
+    "bbox": [0, 0, 2548, 3508],
+    "polygon": [[0, 0], [2548, 0], [2548, 3508], [0, 3508]],
+    "html": "<page>...</page>",
+    "section_hierarchy": {},
+    "children": [
+      {
+        "id": "/page/1/SectionHeader/0",
+        "block_type": "SectionHeader",
+        "html": "<h2>Nemluvio (Nemolizumab) — Fachinformation</h2>",
+        "markdown": "## Nemluvio (Nemolizumab) — Fachinformation",
+        "bbox": [180, 210, 2360, 320],
+        "polygon": [[180, 210], [2360, 210], [2360, 320], [180, 320]],
+        "page": 1,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      },
+      {
+        "id": "/page/1/Text/1",
+        "block_type": "Text",
+        "html": "<p>Nemluvio ist ein subkutan anzuwendendes Biologikum mit dem Wirkstoff Nemolizumab. Das Arzneimittel von Galderma wird zur Behandlung der atopischen Dermatitis und der Prurigo nodularis bei erwachsenen Patienten eingesetzt. Der Gemeinsame Bundesausschuss bewertet den Zusatznutzen gemäß den geltenden Anforderungen.</p>",
+        "markdown": null,
+        "bbox": [180, 360, 2360, 720],
+        "polygon": [[180, 360], [2360, 360], [2360, 720], [180, 720]],
+        "page": 1,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      },
+      {
+        "id": "/page/1/Text/2",
+        "block_type": "Text",
+        "html": "<p>This document summarizes the statistical evaluation of the therapy. The treatment has demonstrated a favourable benefit-risk profile in adult patients. Clinical studies confirmed consistent efficacy across the assessed endpoints, and the safety findings were aligned with the established profile of the substance.</p>",
+        "markdown": null,
+        "bbox": [180, 760, 2360, 1120],
+        "polygon": [[180, 760], [2360, 760], [2360, 1120], [180, 1120]],
+        "page": 1,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      },
+      {
+        "id": "/page/1/Table/3",
+        "block_type": "Table",
+        "html": "<table><thead><tr><th>Parameter</th><th>Wert</th></tr></thead><tbody><tr><td>Dosis</td><td>30 mg</td></tr><tr><td>Intervall</td><td>4 Wochen</td></tr><tr><td>Applikation</td><td>subkutan</td></tr></tbody></table>",
+        "markdown": "| Parameter | Wert |\n| --- | --- |\n| Dosis | 30 mg |\n| Intervall | 4 Wochen |\n| Applikation | subkutan |",
+        "bbox": [180, 1160, 1400, 1520],
+        "polygon": [[180, 1160], [1400, 1160], [1400, 1520], [180, 1520]],
+        "page": 1,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      },
+      {
+        "id": "/page/1/Figure/4",
+        "block_type": "Figure",
+        "html": "<img src=\"fig1.png\"/><div class=\"img-description\">Abbildung 1: Wirkmechanismus von Nemolizumab im Zytokin-Signalweg.</div>",
+        "markdown": null,
+        "bbox": [180, 1560, 2360, 2400],
+        "polygon": [[180, 1560], [2360, 1560], [2360, 2400], [180, 2400]],
+        "page": 1,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      },
+      {
+        "id": "/page/1/PageFooter/5",
+        "block_type": "PageFooter",
+        "html": "",
+        "markdown": null,
+        "bbox": [180, 3400, 2360, 3460],
+        "polygon": [[180, 3400], [2360, 3400], [2360, 3460], [180, 3460]],
+        "page": 1,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      }
+    ]
+  },
+  {
+    "id": "/page/2/Page/2",
+    "block_type": "Page",
+    "bbox": [0, 0, 2548, 3508],
+    "polygon": [[0, 0], [2548, 0], [2548, 3508], [0, 3508]],
+    "html": "<page>...</page>",
+    "section_hierarchy": {},
+    "children": [
+      {
+        "id": "/page/2/SectionHeader/0",
+        "block_type": "SectionHeader",
+        "html": "<h2>Bewertung des Zusatznutzens</h2>",
+        "markdown": "## Bewertung des Zusatznutzens",
+        "bbox": [180, 210, 2360, 320],
+        "polygon": [[180, 210], [2360, 210], [2360, 320], [180, 320]],
+        "page": 2,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      },
+      {
+        "id": "/page/2/Text/1",
+        "block_type": "Text",
+        "html": "<p>The committee reviewed the submitted evidence and concluded that the treatment provides a measurable benefit for the target population. The analysis followed predefined statistical methods and accounted for the relevant confounding factors throughout the assessment period.</p>",
+        "markdown": null,
+        "bbox": [180, 360, 2360, 720],
+        "polygon": [[180, 360], [2360, 360], [2360, 720], [180, 720]],
+        "page": 2,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      },
+      {
+        "id": "/page/2/ListItem/2",
+        "block_type": "ListItem",
+        "html": "<ul><li>Die Wirksamkeit wurde in mehreren Studien bestätigt.</li><li>Das Sicherheitsprofil blieb über den Zeitraum stabil.</li><li>Die Therapie wurde von den Patienten gut vertragen.</li></ul>",
+        "markdown": null,
+        "bbox": [180, 760, 2360, 1080],
+        "polygon": [[180, 760], [2360, 760], [2360, 1080], [180, 1080]],
+        "page": 2,
+        "section_hierarchy": {},
+        "images": {},
+        "inference_failed": false,
+        "metadata": null
+      }
+    ]
+  }
+]
