@@ -44,10 +44,10 @@ def _by_key(results):
 
 
 # --------------------------------------------------------------------------- #
-def test_all_14_metrics_run(good):
+def test_all_metrics_run(good):
     pages, ctx = good
     res = run_page(pages[0], None, ctx)
-    assert len(res) == 14
+    assert len(res) == 17  # 14 core + 3 enhancement
     assert sorted(r.key for r in res) == sorted(METRIC_KEYS)
     # every metric carries at least one evidence example
     for r in res:

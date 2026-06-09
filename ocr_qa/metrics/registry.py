@@ -14,7 +14,10 @@ from ocr_qa.metrics.agreement import XSAMetric
 from ocr_qa.metrics.base import BaseMetric, DocContext, detect_language
 from ocr_qa.metrics.block_count import BCCMetric
 from ocr_qa.metrics.diversity import TTRMetric
+from ocr_qa.metrics.duplicate import DUPMetric, build_duplicate_map
+from ocr_qa.metrics.emptiness import EMPMetric
 from ocr_qa.metrics.entropy import CEDMetric
+from ocr_qa.metrics.figures import FIGMetric
 from ocr_qa.metrics.geometry import BGCMetric
 from ocr_qa.metrics.inference_failed import IFRMetric
 from ocr_qa.metrics.lexical import LVRMetric
@@ -27,26 +30,31 @@ from ocr_qa.metrics.tables import TSIMetric
 from ocr_qa.metrics.wordshape import WSAMetric
 from ocr_qa.models import MetricResult, PageOCR
 
-# Ordered list of all metrics (14).
+# Ordered list of all metrics (14 core + 3 enhancement).
 METRICS: list[BaseMetric] = [
-    IFRMetric(),   # A
+    IFRMetric(),   # A — engine & structure
     BCCMetric(),
     BGCMetric(),
-    HMWMetric(),   # B
+    EMPMetric(),   # A+ empty content-block rate (enhancement)
+    HMWMetric(),   # B — markup
     TSIMetric(),
-    LVRMetric(),   # C
+    FIGMetric(),   # B+ figure & caption integrity (enhancement)
+    LVRMetric(),   # C — lexical
     OOVMetric(),
     SFCMetric(),
-    CEDMetric(),   # D
+    CEDMetric(),   # D — statistical text
     PPLMetric(),
     TTRMetric(),
-    WSAMetric(),   # E
+    WSAMetric(),   # E — surface
     PSWMetric(),
-    XSAMetric(),   # F
+    XSAMetric(),   # F — agreement
+    DUPMetric(),   # F+ duplicate-page detection (enhancement)
 ]
 
 METRIC_KEYS = [m.key for m in METRICS]
-assert len(METRIC_KEYS) == 14, "expected exactly 14 metrics"
+CORE_METRIC_KEYS = ["IFR", "BCC", "BGC", "HMW", "TSI", "LVR", "OOV", "SFC",
+                    "CED", "PPL", "TTR", "WSA", "PSW", "XSA"]
+assert len(METRIC_KEYS) == 17, "expected 14 core + 3 enhancement metrics"
 
 
 def build_context(pages: list[PageOCR], config: Config) -> DocContext:
@@ -81,6 +89,9 @@ def build_context(pages: list[PageOCR], config: Config) -> DocContext:
 
     # PPL calibration on the doc's own prose
     build_ppl_context(ctx, page_prose)
+
+    # near-duplicate page map (document-level, for DUP)
+    ctx.duplicate_of = build_duplicate_map(pages)
     return ctx
 
 

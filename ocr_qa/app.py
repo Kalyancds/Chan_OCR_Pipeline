@@ -171,7 +171,7 @@ def run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc=None, omh=None)
     total = len(pages)
 
     def cb(i, tot, page_no):
-        bar.progress(i / tot, text=f"Page {i}/{tot} — 14 metrics")
+        bar.progress(i / tot, text=f"Page {i}/{tot} — 17 metrics")
 
     doc = build_document_report(pages, ingested, cfg, progress_cb=cb)
     bar.empty()
@@ -402,7 +402,7 @@ def render_page_detail(report, page, is_faulty: bool) -> None:
                        "HTML view always matches the OCR.")
 
     st.divider()
-    st.markdown("#### 🔬 Statistical metrics (14)")
+    st.markdown("#### 🔬 Statistical metrics (17)")
     render_metric_list(report.metrics, page_no=pick)
 
 

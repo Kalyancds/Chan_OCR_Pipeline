@@ -38,6 +38,8 @@ class DocContext:
     ppl_page_raw: dict[int, float] = field(default_factory=dict)
     # per-page detected language {page_no: lang}
     languages: dict[int, str] = field(default_factory=dict)
+    # near-duplicate pages: {page_no: (other_page_no, jaccard_similarity)}
+    duplicate_of: dict[int, tuple] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #

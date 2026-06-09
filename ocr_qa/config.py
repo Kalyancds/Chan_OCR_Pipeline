@@ -32,6 +32,12 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "WSA": 0.04,  # Word-Shape / Tokenization Anomaly
     "PSW": 0.04,  # Punctuation & Sentence Well-formedness
     "XSA": 0.08,  # Repetition & Cross-Source/Native Agreement
+    # ---- enhancement metrics (added after the original 14) ----------------
+    "EMP": 0.04,  # Empty Content-Block Rate (content-loss)
+    "FIG": 0.03,  # Figure & Caption Integrity
+    "DUP": 0.04,  # Duplicate / Near-Duplicate Page
+    # weights need not sum to 1.0: the aggregator renormalises over the
+    # metrics that actually applied to each page.
 }
 
 
