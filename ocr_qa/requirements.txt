@@ -10,6 +10,10 @@ PyMuPDF>=1.24          # render pages ~200 DPI + native text layer
 Pillow>=10.0
 # LibreOffice headless is an EXTERNAL binary (DOCX/PPTX->PDF); not pip-installable.
 
+# --- PDF report ---
+reportlab>=4.0         # PDF report layout (tables, flowables)
+matplotlib>=3.7        # mathtext LaTeX formula rendering (no TeX install needed)
+
 # --- parsing / markup ---
 beautifulsoup4>=4.12
 lxml>=5.0

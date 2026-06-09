@@ -28,6 +28,7 @@ from ocr_qa.ingestion.normalizer import IngestionError, Normalizer
 from ocr_qa.ocr.chandra_parser import audit_page_counts
 from ocr_qa.ocr.client import MockChandraClient, RealChandraClient
 from ocr_qa.review.export import build_review_package, send_for_review
+from ocr_qa.review.pdf_report import build_pdf_report
 from ocr_qa.scoring.aggregate import build_document_report
 from ocr_qa.ui.components import (
     faulty_table_rows,
@@ -68,6 +69,7 @@ def _init_state():
     ss.setdefault("human_calls", {})
     ss.setdefault("page_audit", None)
     ss.setdefault("passed_pick", None)
+    ss.setdefault("config", None)
 
 
 _init_state()
@@ -182,6 +184,7 @@ def run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc=None, omh=None)
     bar.empty()
 
     ss.doc, ss.ingested, ss.pages = doc, ingested, pages
+    ss.config = cfg
     ss.human_calls = {}
     ss.faulty_pick = doc.faulty_pages[0] if doc.faulty_pages else None
     ss.stage = "Faulty Pages" if doc.faulty_pages else "Verdict"
@@ -540,24 +543,47 @@ def stage_export():
     if not doc:
         st.info("Run **Analyze** first.")
         return
-    if not doc.faulty_pages:
-        st.success("No faulty pages to export. The document passed. ✅")
-        return
+    cfg = ss.get("config") or Config()
 
+    # ---- full PDF report (available for PASS or FAIL) ----
     with st.container(border=True):
-        st.caption("Faulty-pages-only human-review package: review.json / review.csv / "
-                   "review.md / page images.")
-        if st.button("📦 Build review package", type="primary"):
+        st.markdown("**📄 Full PDF report**")
+        st.caption("Title + document name + PASS/FAIL + a findings table (why each "
+                   "page failed, with justification) + per-page summary + a metrics "
+                   "reference with LaTeX formulas and the exact file used per metric.")
+        if st.button("📄 Generate PDF report", type="primary"):
+            out = os.path.join(ss.normalizer.work_dir, f"{doc.doc_id}_report.pdf")
+            try:
+                src_name = ss.ingested.doc_id if ss.ingested else doc.doc_id
+                with st.spinner("Rendering report (formulas, tables)…"):
+                    path = build_pdf_report(doc, ss.ingested, cfg, out,
+                                            page_audit=ss.page_audit, source_name=src_name)
+                with open(path, "rb") as fh:
+                    st.download_button(
+                        "⬇️ Download PDF report", fh.read(),
+                        file_name=os.path.basename(path), mime="application/pdf",
+                        type="primary",
+                    )
+                st.success(f"Built {os.path.basename(path)}.")
+            except Exception as exc:
+                st.error(f"Could not build PDF report: {exc}")
+
+    # ---- faulty-pages review package (only when there are faulty pages) ----
+    if not doc.faulty_pages:
+        st.success("No faulty pages — the document passed. (PDF report still "
+                   "available above.) ✅")
+        return
+    with st.container(border=True):
+        st.markdown("**📦 Human-review package (faulty pages only)**")
+        st.caption("review.json / review.csv / review.md / page images, zipped.")
+        if st.button("📦 Build review package"):
             out = os.path.join(ss.normalizer.work_dir, f"{doc.doc_id}_review.zip")
             try:
                 path = build_review_package(doc, ss.ingested, out)
                 with open(path, "rb") as fh:
                     st.download_button(
-                        "⬇️ Download review package (zip)",
-                        fh.read(),
-                        file_name=os.path.basename(path),
-                        mime="application/zip",
-                        type="primary",
+                        "⬇️ Download review package (zip)", fh.read(),
+                        file_name=os.path.basename(path), mime="application/zip",
                     )
                 st.success(f"Built {os.path.basename(path)} with "
                            f"{len(doc.faulty_pages)} faulty page(s).")
