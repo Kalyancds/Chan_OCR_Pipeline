@@ -156,8 +156,18 @@ def reading_order_confidence(page: PageOCR) -> float:
 
 
 def native_reliability(page: PageOCR, native_text) -> bool:
-    """Is the PDF's native text layer clean and aligned enough to trust CER/WER?
-    Requires a substantial native layer that shares vocabulary with the OCR."""
+    """Is the PDF's native text layer clean AND ALIGNED enough to trust CER/WER?
+
+    The metric-review doc warns that CER/WER is misleading when the native layer
+    is misaligned (different reading order, headers/footers, hidden text), even
+    when the words match. So we require THREE things, not just vocabulary
+    overlap: (1) a substantial native layer, (2) similar length, and crucially
+    (3) sequence ALIGNMENT — the OCR and native token streams must line up, not
+    merely share a bag of words. Re-ordered book pages fail (3) and are excluded,
+    which prevents the native-CER false positives.
+    """
+    import difflib
+
     from ocr_qa.metrics.base import word_tokens
 
     if not native_text or not native_text.strip():
@@ -166,8 +176,17 @@ def native_reliability(page: PageOCR, native_text) -> bool:
     ocr = [t.lower() for t in word_tokens(page.text)]
     if len(nat) < 20 or len(ocr) < 20:
         return False
-    overlap = len(set(nat) & set(ocr)) / max(1, len(set(ocr)))
-    return overlap >= 0.5
+    # (1) vocabulary overlap — the content is actually present
+    if len(set(nat) & set(ocr)) / max(1, len(set(ocr))) < 0.6:
+        return False
+    # (2) comparable length — no large hidden/extra native text
+    if min(len(nat), len(ocr)) / max(len(nat), len(ocr)) < 0.6:
+        return False
+    # (3) sequence alignment — same reading order, not just same words
+    ratio = difflib.SequenceMatcher(
+        None, " ".join(ocr[:400]), " ".join(nat[:400])
+    ).ratio()
+    return ratio >= 0.6
 
 
 def run_page(

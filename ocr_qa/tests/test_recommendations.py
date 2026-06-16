@@ -117,6 +117,37 @@ def test_xsa_native_cer_gated_by_reliability():
     assert "native_cer" in res_rel.submetrics
 
 
+def test_native_reliability_requires_alignment():
+    """A native layer that shares words but is RE-ORDERED (book reading-order /
+    headers-footers) must be judged unreliable, so CER cannot falsely hard-fail."""
+    from ocr_qa.metrics.registry import native_reliability
+    from ocr_qa.ocr.chandra_parser import ChandraParser
+
+    body = ("the committee reviewed the submitted clinical evidence and concluded "
+            "that the treatment provides a measurable and durable benefit across all "
+            "assessed primary and secondary endpoints in adult study patients here")
+    pages = ChandraParser().parse([_page([_text_block(body)])])
+    p = pages[0]
+    # aligned native (same order) -> reliable
+    assert native_reliability(p, body) is True
+    # same words, shuffled order (misaligned) -> NOT reliable
+    shuffled = " ".join(reversed(body.split()))
+    assert native_reliability(p, shuffled) is False
+
+
+def test_xsa_native_cer_not_hard_when_misaligned():
+    """The exact book false-positive: words present but reordered => native CER
+    must be skipped, so XSA does not hard-fail a clean page."""
+    body = ("annual insights over twenty years of market research across many "
+            "global regions covering adoption attitudes and behaviours of clinicians "
+            "and patients in detail throughout the full reporting period here now")
+    misaligned = " ".join(sorted(body.split()))  # same words, wrong order
+    res, _ = _xsa_for([_page([_text_block(body)])], native=misaligned,
+                      native_reliable=False)  # gate would mark it unreliable
+    assert "native_cer" not in res.submetrics
+    assert res.hard_fail is False
+
+
 def test_xsa_not_worst_of():
     # one zero sub-part should not collapse the whole XSA score to 0
     md = "1------------------------------------------------\n" + OTHER
