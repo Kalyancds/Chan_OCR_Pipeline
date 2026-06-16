@@ -371,6 +371,38 @@ def _build_reportlab(
     rt.setStyle(grid())
     story.append(rt)
 
+    # ---- 6b. per-page FULL metric breakdown (all 17 metrics) ----
+    story.append(PageBreak())
+    story.append(Paragraph("Per-page metric breakdown - all 17 metrics", H2))
+    story.append(P("Every page, its pass/fail decision, and the score + short "
+                   "explanation of each metric (a full audit; n/a = not applicable, "
+                   "[H] = hard fail)."))
+    TINY = ParagraphStyle("TINY", fontName=REG, fontSize=6.5, leading=8.5)
+    order = [e["key"] for e in CATALOG]
+    data = [[hcell("Page"), hcell("Result"),
+             hcell("All 17 metrics: score and explanation")]]
+    for r in sorted(doc.page_reports, key=lambda r: r.page_no):
+        by = {m.key: m for m in r.metrics}
+        bits = []
+        for k in order:
+            m = by.get(k)
+            if m is None:
+                continue
+            if not m.applicable:
+                bits.append(f"<b>{k}</b> n/a")
+                continue
+            j = m.justification or ""
+            if len(j) > 90:
+                j = j[:90] + "..."
+            tag = " [H]" if m.hard_fail else ""
+            bits.append(f"<b>{k}</b> {m.score:.0f}{tag}: {_esc(j)}")
+        data.append([P(str(r.page_no), 6.5),
+                     P("FAIL" if r.verdict == "review" else "PASS", 6.5),
+                     Paragraph("<br/>".join(bits), TINY)])
+    bt = Table(data, colWidths=[AVAIL * 0.06, AVAIL * 0.08, AVAIL * 0.86], repeatRows=1)
+    bt.setStyle(grid())
+    story.append(bt)
+
     # ---- 7. metrics reference ----
     story.append(PageBreak())
     story.append(Paragraph("Metrics reference - what each parameter is, the file "
@@ -618,6 +650,36 @@ def _build_latex(
             for e in CATALOG if agg.get(e["key"])]
     L.append(_ltable(["Metric", "Mean", "Min", "Applied on"], rows,
                      "L{0.22\\textwidth} L{0.22\\textwidth} L{0.22\\textwidth} L{0.24\\textwidth}"))
+
+    # 6b. per-page FULL metric breakdown (all 17 metrics, score + explanation)
+    L.append(r"\newpage\section*{Per-page metric breakdown --- all 17 metrics}")
+    L.append(_tex("Every page, its pass/fail decision, and the score + short "
+                  "explanation of each of the 17 metrics. A full audit so you can "
+                  "confirm every metric ran on every page (n/a = not applicable)."))
+    order = [e["key"] for e in CATALOG]
+
+    def _breakdown(r):
+        by = {m.key: m for m in r.metrics}
+        parts = []
+        for k in order:
+            m = by.get(k)
+            if m is None:
+                continue
+            if not m.applicable:
+                parts.append(r"\textbf{%s} n/a" % _tex(k))
+                continue
+            j = m.justification or ""
+            if len(j) > 90:
+                j = j[:90] + "..."
+            tag = r"\,[H]" if m.hard_fail else ""
+            parts.append(r"\textbf{%s} %.0f%s: %s" % (_tex(k), m.score, tag, _tex(j)))
+        return r" \newline ".join(parts)
+
+    rows = [[str(r.page_no), "FAIL" if r.verdict == "review" else "PASS", _breakdown(r)]
+            for r in sorted(doc.page_reports, key=lambda r: r.page_no)]
+    L.append("{\\scriptsize\n" + _ltable(
+        ["Page", "Result", "All 17 metrics: score and explanation ([H]=hard fail)"],
+        rows, "L{0.05\\textwidth} L{0.07\\textwidth} L{0.84\\textwidth}") + "\n}")
 
     # 7. metrics reference
     L.append(r"\newpage\section*{Metrics reference --- what each parameter is, the "
