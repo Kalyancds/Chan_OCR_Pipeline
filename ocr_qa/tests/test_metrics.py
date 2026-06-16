@@ -122,7 +122,10 @@ def test_garbled_page_lexical_low(bad):
     # genuine low-LVR / gibberish page is page 2.
     m2 = _by_key(run_page(pages[1], None, ctx))
     assert m2["LVR"].raw_value < 0.80
-    assert m2["LVR"].hard_fail is True
+    # LVR is now a SOFT supporting signal (no longer a hard trigger).
+    assert m2["LVR"].hard_fail is False
+    assert m2["LVR"].tier == "soft"
+    assert m2["LVR"].status == "bad"
     # OOV separates gibberish from plausible (on page 1 too)
     m1 = _by_key(run_page(pages[0], None, ctx))
     assert m1["OOV"].raw_value > 0.0

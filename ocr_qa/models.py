@@ -151,7 +151,9 @@ class MetricResult(BaseModel):
     justification: str = ""
     reliability: Reliability = "high"
     applicable: bool = True  # False => dropped from weighting (Sec 5)
-    hard_fail: bool = False  # this metric tripped a HARD condition (Sec 5)
+    hard_fail: bool = False  # this metric tripped a HARD/DEFINITE condition
+    tier: str = "soft"  # 'hard' (definite-eligible) or 'soft' (supporting only)
+    submetrics: dict[str, Any] = Field(default_factory=dict)  # e.g. XSA breakdown
 
 
 class PageReport(BaseModel):
@@ -162,6 +164,12 @@ class PageReport(BaseModel):
     problems: list[str] = Field(default_factory=list)
     image_path: Optional[str] = None
     token_count: int = 0
+    # Decision-support context (per the metric-review recommendations):
+    page_type: str = "unknown"          # prose-heavy/table-heavy/image-heavy/title/list/mixed
+    text_density: float = 0.0           # extracted chars per 1000 px^2 of page area
+    native_reliable: bool = False       # native PDF text usable for CER/WER?
+    reading_order_conf: float = 1.0     # 1.0 = blocks in coherent reading order
+    soft_fail_count: int = 0            # how many soft signals failed (text-rich)
 
     def metric(self, key: str) -> Optional[MetricResult]:
         for m in self.metrics:

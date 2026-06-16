@@ -68,10 +68,13 @@ class HMWMetric(BaseMetric):
         bad = 0
         evidence: list[str] = []
         locations: list[dict] = []
+        content_malformed = 0  # malformed markup on a content block => affects extraction
         for b in blocks:
             reason = _malformed(b.html)
             if reason:
                 bad += 1
+                if b.is_content:
+                    content_malformed += 1
                 snippet = b.html.strip()[:60].replace("\n", " ")
                 evidence.append(
                     f"{b.block_id or b.block_type}: {reason} — '{snippet}…'"
@@ -110,8 +113,12 @@ class HMWMetric(BaseMetric):
             evidence=evidence,
             justification=(
                 f"{bad}/{total} blocks have malformed markup "
-                f"({raw * 100:.1f}%)."
+                f"({raw * 100:.1f}%)"
+                + (f"; {content_malformed} on content block(s) — affects extraction."
+                   if content_malformed else " (none on content blocks).")
                 if bad
                 else f"All {total} HTML blocks are well-formed."
             ),
+            # DEFINITE only when malformed markup is on a content block.
+            hard_fail=content_malformed > 0,
         )

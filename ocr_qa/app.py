@@ -40,6 +40,7 @@ from ocr_qa.ui.components import (
     render_hero,
     render_metric_list,
     render_metrics_guide,
+    render_page_context,
     render_verdict_badge,
     score_gauge,
     status_color,
@@ -344,6 +345,7 @@ def render_page_detail(report, page, is_faulty: bool) -> None:
         f"{_pqs_pill(report.page_score)}{badge}</div>",
         unsafe_allow_html=True,
     )
+    render_page_context(report)
 
     if is_faulty:
         st.markdown("**Faults on this page**")

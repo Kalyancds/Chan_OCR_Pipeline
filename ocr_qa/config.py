@@ -45,7 +45,18 @@ class Config(BaseModel):
     """Runtime knobs. All fields are sidebar-editable (Sec 9)."""
 
     # ---- page / document verdict thresholds -------------------------------
-    t_page: float = Field(70.0, description="PQS below this => page needs review")
+    # Decisioning (per the metric-review recommendations): a page is flagged for
+    # review when EITHER one DEFINITE (hard) failure fires, OR at least
+    # `soft_fail_threshold` SOFT signals fail on a page with enough text, OR the
+    # PQS falls below `pqs_backstop` (a low safety net). `t_page` is retained for
+    # display/back-compat but no longer the primary trigger.
+    t_page: float = Field(70.0, description="PQS reference line (display)")
+    pqs_backstop: float = Field(
+        50.0, description="PQS below this => review (low safety net)"
+    )
+    soft_fail_threshold: int = Field(
+        3, description="this many soft-signal failures (on a text-rich page) => review"
+    )
     t_doc: float = Field(75.0, description="DQS below this => document FAILED")
     doc_flag_ratio: float = Field(
         0.20, description="faulty/total above this => document FAILED"
@@ -112,6 +123,17 @@ class Config(BaseModel):
 
 # A module-level default others can import directly.
 DEFAULT_CONFIG = Config()
+
+
+# --------------------------------------------------------------------------- #
+# Metric tiers (metric-review recommendations).
+#  * HARD metrics may, when a DEFINITE condition fires, send a page straight to
+#    review (carried on MetricResult.hard_fail).
+#  * SOFT metrics never trigger review alone; they only count toward the
+#    ">= soft_fail_threshold soft failures" rule and act as supporting evidence.
+# --------------------------------------------------------------------------- #
+HARD_METRICS: set[str] = {"IFR", "BCC", "BGC", "EMP", "HMW", "TSI", "DUP", "CED", "XSA"}
+SOFT_METRICS: set[str] = {"SFC", "TTR", "PPL", "PSW", "LVR", "OOV", "WSA"}
 
 
 # Pharma / brand proper nouns that must never be flagged as garbled (Sec 4).

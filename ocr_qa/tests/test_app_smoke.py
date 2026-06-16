@@ -32,7 +32,7 @@ def test_guide_renders_without_analysis():
     at.run()
     assert not at.exception
     body = " ".join(str(m.value) for m in at.markdown)
-    assert "Metrics Guide" in body or "How the score works" in body
+    assert "How a page is sent to review" in body or "DEFINITE" in body
 
 
 def _doc(folder):

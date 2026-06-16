@@ -70,8 +70,10 @@ class EMPMetric(BaseMetric):
             evidence=evidence,
             justification=(
                 f"{len(empty)}/{total} content blocks are empty "
-                f"({raw * 100:.0f}%)."
+                f"({raw * 100:.0f}%) — meaningful content appears dropped."
                 if empty
                 else f"None of the {total} content blocks are empty."
             ),
+            # DEFINITE: an empty text/content block means content was dropped.
+            hard_fail=bool(empty),
         )

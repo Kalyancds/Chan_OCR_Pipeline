@@ -111,6 +111,11 @@ class DUPMetric(BaseMetric):
             evidence=[f"most similar page: {other} (Jaccard {sim*100:.0f}%)"],
             justification=(
                 f"{sim*100:.0f}% token overlap with page {other}"
-                + (" — near-duplicate." if is_dup else " — distinct page.")
+                + (" — DEFINITE duplicate." if sim >= DUP_EXACT
+                   else " — near-duplicate (soft)." if is_dup
+                   else " — distinct page.")
             ),
+            # DEFINITE only for a near-exact duplicate (content emitted twice);
+            # repeated layouts (dividers/TOC) stay soft.
+            hard_fail=sim >= DUP_EXACT,
         )

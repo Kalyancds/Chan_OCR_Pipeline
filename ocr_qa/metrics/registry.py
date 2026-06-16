@@ -92,7 +92,82 @@ def build_context(pages: list[PageOCR], config: Config) -> DocContext:
 
     # near-duplicate page map (document-level, for DUP)
     ctx.duplicate_of = build_duplicate_map(pages)
+
+    # decision-support context per page (page type, density, reading order)
+    for p in pages:
+        ctx.page_types[p.page_no] = classify_page_type(p)
+        ctx.text_density[p.page_no] = text_density(p)
+        ctx.reading_order_conf[p.page_no] = reading_order_confidence(p)
     return ctx
+
+
+# --------------------------------------------------------------------------- #
+# decision-support context helpers (metric-review recommendations)
+# --------------------------------------------------------------------------- #
+def classify_page_type(page: PageOCR) -> str:
+    """prose-heavy / table-heavy / image-heavy / title-cover / list-caption /
+    mixed / empty — used to decide which soft metrics actually apply."""
+    blocks = page.blocks
+    if not blocks:
+        return "empty"
+    from ocr_qa.metrics.base import word_tokens
+
+    prose_toks = len(word_tokens(page.prose_text()))
+    n_tables = len(page.table_blocks())
+    n_figs = len(page.figure_blocks())
+    n_list = sum(1 for b in blocks if b.block_type in ("ListItem", "Caption"))
+    n_content = max(1, len([b for b in blocks if b.is_content]))
+    has_header = any(b.block_type == "SectionHeader" for b in blocks)
+
+    if prose_toks < 30 and has_header and len(blocks) <= 4:
+        return "title-cover"
+    if n_tables and n_tables / n_content >= 0.4:
+        return "table-heavy"
+    if n_figs and prose_toks < 40:
+        return "image-heavy"
+    if n_list >= max(2, 0.5 * len(blocks)) and prose_toks < 60:
+        return "list-caption"
+    if prose_toks >= 60:
+        return "prose-heavy"
+    return "mixed"
+
+
+def text_density(page: PageOCR) -> float:
+    """Extracted characters per 1e6 px^2 of page area (OCR coverage proxy)."""
+    pb = page.raw.get("bbox") if isinstance(page.raw, dict) else None
+    area = 0.0
+    if isinstance(pb, list) and len(pb) == 4:
+        area = max(1.0, (pb[2] - pb[0]) * (pb[3] - pb[1]))
+    return round(len(page.text) / (area / 1e6), 2) if area else 0.0
+
+
+def reading_order_confidence(page: PageOCR) -> float:
+    """1.0 = blocks read top-to-bottom coherently; lower => order inversions."""
+    blocks = [b for b in page.blocks if b.bbox and len(b.bbox) == 4]
+    ordered = sorted(blocks, key=lambda b: b.reading_order)
+    if len(ordered) < 2:
+        return 1.0
+    pb = page.raw.get("bbox") if isinstance(page.raw, dict) else None
+    ph = pb[3] if (isinstance(pb, list) and len(pb) == 4 and pb[3]) else \
+        max((b.bbox[3] for b in ordered), default=1000.0)
+    inv = sum(1 for prev, cur in zip(ordered, ordered[1:])
+              if cur.bbox[1] < prev.bbox[1] - 0.25 * ph)
+    return round(1.0 - inv / (len(ordered) - 1), 3)
+
+
+def native_reliability(page: PageOCR, native_text) -> bool:
+    """Is the PDF's native text layer clean and aligned enough to trust CER/WER?
+    Requires a substantial native layer that shares vocabulary with the OCR."""
+    from ocr_qa.metrics.base import word_tokens
+
+    if not native_text or not native_text.strip():
+        return False
+    nat = [t.lower() for t in word_tokens(native_text)]
+    ocr = [t.lower() for t in word_tokens(page.text)]
+    if len(nat) < 20 or len(ocr) < 20:
+        return False
+    overlap = len(set(nat) & set(ocr)) / max(1, len(set(ocr)))
+    return overlap >= 0.5
 
 
 def run_page(
@@ -100,11 +175,20 @@ def run_page(
     native_text: Optional[str],
     ctx: DocContext,
 ) -> list[MetricResult]:
-    """Run all 14 metrics on a page, never raising (defensive)."""
+    """Run all metrics on a page, never raising (defensive). Each result is
+    tagged with its tier ('hard' = definite-eligible, 'soft' = supporting)."""
+    from ocr_qa.config import HARD_METRICS
+
     results: list[MetricResult] = []
     for metric in METRICS:
         try:
-            results.append(metric.compute(page, native_text, ctx))
+            r = metric.compute(page, native_text, ctx)
+            r.tier = "hard" if r.key in HARD_METRICS else "soft"
+            # SOFT metrics never carry a hard trigger (safety net).
+            if r.tier == "soft":
+                r.hard_fail = False
+            results.append(r)
+            continue
         except Exception as exc:  # pragma: no cover - safety net
             results.append(
                 MetricResult(
@@ -121,6 +205,7 @@ def run_page(
                     "scoring.",
                     reliability="low",
                     applicable=False,
+                    tier="hard" if metric.key in HARD_METRICS else "soft",
                 )
             )
     return results

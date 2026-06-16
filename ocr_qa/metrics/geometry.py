@@ -66,16 +66,21 @@ class BGCMetric(BaseMetric):
             ph = max((b.bbox[3] for b in blocks), default=3508.0)
 
         bad_ids: set[str] = set()
+        severe_content = 0   # degenerate/out-of-bounds on a CONTENT block => content loss
         evidence: list[str] = []
 
         for b in blocks:
             if _degenerate(b.bbox):
                 bad_ids.add(b.block_id)
+                if b.is_content:
+                    severe_content += 1
                 evidence.append(
                     f"{b.block_id or b.block_type}: degenerate box {b.bbox}"
                 )
             elif _outside(b.bbox, pw, ph):
                 bad_ids.add(b.block_id)
+                if b.is_content:
+                    severe_content += 1
                 evidence.append(
                     f"{b.block_id or b.block_type}: box {b.bbox} outside page "
                     f"(0..{pw:.0f} x 0..{ph:.0f})"
@@ -130,27 +135,34 @@ class BGCMetric(BaseMetric):
                 f"{pw:.0f}×{ph:.0f} page, in top-to-bottom reading order → 0% bad."
             )
 
-        locations = [
-            loc("bad_geometry", "definite", block=b,
-                snippet=(b.text or b.block_type)[:60])
-            for b in blocks
-            if b.block_id in bad_ids
-        ]
+        locations = []
+        for b in blocks:
+            if b.block_id not in bad_ids:
+                continue
+            sev = b.is_content and (_degenerate(b.bbox) or _outside(b.bbox, pw, ph))
+            locations.append(loc("bad_geometry", "definite" if sev else "statistical",
+                                 block=b, snippet=(b.text or b.block_type)[:60]))
 
         return self.result(
             raw_value=raw,
             score=score,
             status=status,
-            threshold={"bad_rate_zero_at": 0.0, "bad_rate_bad_at": 0.4},
+            threshold={"bad_rate_zero_at": 0.0, "bad_rate_bad_at": 0.4,
+                       "severe_content_for_hard": 1},
             how_computed="(degenerate + out-of-bounds + heavily-overlapping + "
-            "order-inverted blocks) / total blocks.",
+            "order-inverted blocks) / total blocks. HARD only for degenerate / "
+            "out-of-bounds CONTENT blocks (content loss); mild overlaps in "
+            "designed PDFs are soft.",
             example=example,
             locations=locations,
             evidence=evidence,
             justification=(
-                f"{bad}/{total} blocks have geometry problems "
-                f"({raw * 100:.1f}%)."
+                f"{bad}/{total} blocks have geometry problems ({raw * 100:.1f}%)"
+                + (f"; {severe_content} severe on content block(s) — content loss."
+                   if severe_content else " (mild/design only).")
                 if bad
                 else f"All {total} blocks have coherent geometry."
             ),
+            # DEFINITE only for severe content-block geometry, never mild overlap.
+            hard_fail=severe_content > 0,
         )

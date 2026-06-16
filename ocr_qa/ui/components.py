@@ -98,6 +98,17 @@ div[data-testid="stHorizontalBlock"] .ocrqa-nav { }
   font-size:.64rem; font-weight:700; padding:.04rem .45rem; border-radius:6px; }
 .tag-rel { background:#fff8e1; color:#a6791f; border:1px solid #f0dca0;
   font-size:.62rem; padding:.04rem .4rem; border-radius:6px; }
+.tier-hard { background:#2a2f45; color:#fff; font-size:.6rem; font-weight:700;
+  padding:.04rem .45rem; border-radius:6px; letter-spacing:.03em; }
+.tier-soft { background:#eef2f7; color:#5b6472; border:1px solid #dde3ea;
+  font-size:.6rem; font-weight:700; padding:.04rem .45rem; border-radius:6px; }
+.ctxstrip { display:flex; gap:.4rem; flex-wrap:wrap; margin:.2rem 0 .4rem; }
+.ctx { background:#f3f6fb; border:1px solid #e2e8f1; border-radius:7px;
+  padding:.18rem .5rem; font-size:.74rem; color:#33415c; }
+.ctx b { color:#1f2a44; }
+.submx { display:flex; gap:.35rem; flex-wrap:wrap; margin:.2rem 0; }
+.submx .s { font-size:.72rem; border:1px solid #e2e8f1; border-radius:6px;
+  padding:.1rem .4rem; background:#fafbfd; }
 
 /* score bar */
 .bar { height:7px; background:#eef0f3; border-radius:7px; overflow:hidden; margin:.15rem 0 .35rem;}
@@ -193,23 +204,28 @@ def render_metrics_guide() -> None:
     st.caption("What each statistical metric measures, the file it reads, its "
                "formula, and a worked example.")
 
-    # ---- how scoring works ----
+    # ---- how scoring works (tier-based decisioning) ----
     with st.container(border=True):
-        st.markdown("#### How the score works")
+        st.markdown("#### How a page is sent to review")
         st.markdown(
-            f"- **PQS** (Page Quality Score) = weighted average of the metric "
-            f"scores that applied to the page (weights renormalised over available "
-            f"metrics).\n"
-            f"- **DQS** (Document Quality Score) = token-weighted mean of every "
-            f"page's PQS.\n"
-            f"- A page is **faulty** if `PQS < {cfg.t_page:.0f}` **or** any **HARD** "
-            f"condition fires (inference_failed on content · mojibake ≥ "
-            f"{cfg.ced_mojibake_bad} · repetition loop · LVR < "
-            f"{cfg.lexical_warn*100:.0f}% · native CER > {cfg.xsa_cer_bad*100:.0f}% · "
-            f"block-count mismatch).\n"
-            f"- **Document = PASSED** only if `DQS ≥ {cfg.t_doc:.0f}` **and** faulty "
-            f"ratio ≤ {cfg.doc_flag_ratio*100:.0f}% **and** no page hit a HARD "
-            f"condition."
+            f"Metrics are split into two tiers (to avoid false positives):\n"
+            f"- **DEFINITE (hard) triggers** — one is enough to flag a page: "
+            f"inference-failed content (IFR) · major block/page-count mismatch (BCC) · "
+            f"empty content blocks (EMP) · markup that breaks extraction (HMW) · "
+            f"unexpected duplicate page (DUP) · mojibake/encoding corruption (CED) · "
+            f"definite repetition loop / reliable native-CER / ≥2 artefact "
+            f"disagreements (XSA) · severe geometry or table content loss (BGC/TSI).\n"
+            f"- **SOFT signals** (LVR, OOV, WSA, PPL, TTR, PSW, SFC, KL-divergence) "
+            f"are supporting evidence only — they flag a page **only when ≥ "
+            f"{cfg.soft_fail_threshold} of them fail together on a text-rich page**.\n\n"
+            f"**Page → review** if (1 DEFINITE failure) **OR** (≥ "
+            f"{cfg.soft_fail_threshold} soft failures) **OR** PQS < "
+            f"{cfg.pqs_backstop:.0f} (safety net). "
+            f"**Document = PASSED** if DQS ≥ {cfg.t_doc:.0f}, faulty ratio ≤ "
+            f"{cfg.doc_flag_ratio*100:.0f}%, and no page hit a DEFINITE condition.\n\n"
+            f"Soft text-statistics metrics apply **only to prose-bearing pages with "
+            f"enough text** (page-type / token gating), and native CER/WER is used "
+            f"**only when the native PDF text layer is reliable**."
         )
         render_status_legend()
 
@@ -222,6 +238,8 @@ def render_metrics_guide() -> None:
         )
 
     # ---- summary table ----
+    from ocr_qa.config import HARD_METRICS
+
     st.markdown("#### All 17 metrics at a glance")
     rows = []
     for i, e in enumerate(CATALOG, start=1):
@@ -231,8 +249,8 @@ def render_metrics_guide() -> None:
             "Key": e["key"],
             "Metric": m.name if m else e["key"],
             "Group": GROUPS[e["group"]][0],
+            "Trigger": "DEFINITE (hard)" if e["key"] in HARD_METRICS else "soft signal",
             "Reads": ", ".join(e["reads"][:3]) + ("…" if len(e["reads"]) > 3 else ""),
-            "Confidence": e["confidence"],
             "Weight": f"{weight_for(e['key']):.2f}",
         })
     st.dataframe(rows, use_container_width=True, hide_index=True, height=430)
@@ -357,6 +375,17 @@ def _render_card_body(m: MetricResult, page_no=None) -> None:
         f"<ul class='scorelist'>{''.join(bullets)}</ul>",
         unsafe_allow_html=True,
     )
+    # 3b) sub-metric breakdown (XSA) — explainable split, not one worst-of score
+    if m.submetrics:
+        _LBL = {"repetition": "Repetition", "json_md": "JSON↔MD",
+                "json_chunk": "JSON↔chunk", "json_html": "JSON↔HTML",
+                "native_cer": "Native CER"}
+        chips = "".join(
+            f"<span class='s'>{_LBL.get(k, k)}: <b>{v:.0f}</b></span>"
+            for k, v in m.submetrics.items()
+        )
+        st.markdown(f"<div class='lbl'>Sub-metric breakdown</div>"
+                    f"<div class='submx'>{chips}</div>", unsafe_allow_html=True)
     # 4) this-page worked example
     if m.example:
         where = f"page&nbsp;{page_no}" if page_no is not None else "this page"
@@ -377,8 +406,13 @@ def render_metric_card(m: MetricResult, expanded: bool, page_no=None) -> None:
     color = status_color(m.status)
     with st.container(border=True):
         extra = ""
+        # tier chip: DEFINITE-eligible (hard) vs supporting-only (soft)
+        if m.tier == "hard":
+            extra += " <span class='tier-hard'>DEFINITE-eligible</span>"
+        else:
+            extra += " <span class='tier-soft'>soft signal</span>"
         if m.hard_fail:
-            extra += " <span class='tag-hard'>HARD</span>"
+            extra += " <span class='tag-hard'>HARD FAIL</span>"
         if m.reliability == "low":
             extra += " <span class='tag-rel'>low reliability</span>"
         if not m.applicable:
@@ -427,6 +461,23 @@ def render_metric_list(metrics: list[MetricResult], page_no=None) -> None:
 # --------------------------------------------------------------------------- #
 # fault chips
 # --------------------------------------------------------------------------- #
+def render_page_context(report: PageReport) -> None:
+    """Decision-support context strip (page type, density, native reliability,
+    reading-order confidence, soft-signal count)."""
+    import streamlit as st
+
+    nat = "reliable" if report.native_reliable else "n/a / unreliable"
+    chips = [
+        f"<span class='ctx'>Page type: <b>{html.escape(report.page_type)}</b></span>",
+        f"<span class='ctx'>Tokens: <b>{report.token_count}</b></span>",
+        f"<span class='ctx'>Text density: <b>{report.text_density:.0f}</b>/Mpx²</span>",
+        f"<span class='ctx'>Native text: <b>{nat}</b></span>",
+        f"<span class='ctx'>Reading-order conf: <b>{report.reading_order_conf:.2f}</b></span>",
+        f"<span class='ctx'>Soft signals: <b>{report.soft_fail_count}</b></span>",
+    ]
+    st.markdown(f"<div class='ctxstrip'>{''.join(chips)}</div>", unsafe_allow_html=True)
+
+
 def render_fault_chips(problems: list[str]) -> None:
     import streamlit as st
 

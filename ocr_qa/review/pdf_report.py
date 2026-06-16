@@ -572,6 +572,11 @@ def _build_latex(
         for r in faulty:
             L.append(r"\vspace{4pt}\textbf{Page %d --- PQS %.0f/100}\\[-2pt]" %
                      (r.page_no, r.page_score))
+            L.append(r"{\small\itshape " + _tex(
+                f"context: page type {r.page_type}; {r.token_count} tokens; "
+                f"native text {'reliable' if r.native_reliable else 'n/a'}; "
+                f"reading-order conf {r.reading_order_conf:.2f}; "
+                f"{r.soft_fail_count} soft signal(s)") + r"}\\[-2pt]")
             rows = []
             failing = [m for m in r.metrics
                        if m.applicable and (m.status in ("bad", "warn") or m.hard_fail)]
@@ -624,6 +629,8 @@ def _build_latex(
                      [[_tex(f), _tex(c), _tex(u)] for f, c, u in FILE_MAP],
                      "L{0.27\\textwidth} L{0.42\\textwidth} L{0.27\\textwidth}"))
 
+    from ocr_qa.config import HARD_METRICS
+
     rows = []
     for e in CATALOG:
         m = by_key.get(e["key"])
@@ -631,12 +638,16 @@ def _build_latex(
         meas = _tex(m.what_it_measures if m else "")
         files = r"\newline ".join(_tex("- " + x) for x in e["reads"])
         formula = "$" + LATEX.get(e["key"], "") + "$"
+        trigger = "DEFINITE" if e["key"] in HARD_METRICS else "soft"
         rows.append([r"\textbf{%s}\newline %s" % (_tex(e["key"]), name),
-                     formula, files, meas, _tex(e["confidence"])])
-    L.append(_ltable(["Metric", "Formula", "File(s) used", "What it measures",
-                      "Conf."], rows,
-                     "L{0.17\\textwidth} L{0.20\\textwidth} L{0.19\\textwidth} "
-                     "L{0.26\\textwidth} L{0.08\\textwidth}"))
+                     formula, _tex(trigger), files, meas])
+    L.append(_ltable(["Metric", "Formula", "Trigger", "File(s) used",
+                      "What it measures"], rows,
+                     "L{0.16\\textwidth} L{0.19\\textwidth} L{0.10\\textwidth} "
+                     "L{0.18\\textwidth} L{0.27\\textwidth}"))
+    L.append(_tex("Trigger = DEFINITE (one such failure sends the page to review) "
+                  "or soft (supporting evidence only; needs >=" +
+                  str(config.soft_fail_threshold) + " soft failures together)."))
 
     L.append(r"\section*{Worked examples}\begin{itemize}\setlength\itemsep{1pt}")
     for e in CATALOG:
