@@ -127,6 +127,7 @@ class TSIMetric(BaseMetric):
                         f"Chunk metadata reports {chunk_table_count} table(s) on "
                         f"this page, but none were parsed — likely a dropped table."
                     ),
+                    hard_fail=True,  # DEFINITE: table content lost
                 )
             return self.not_applicable("page has no tables" if not tables else "bs4 missing")
 
@@ -184,6 +185,7 @@ class TSIMetric(BaseMetric):
                 )
 
         raw = sum(defect_scores) / len(defect_scores)
+        n_unparseable = sum(1 for L in locations if L["kind"] == "table_unparseable")
 
         # Chunk corroboration: parsed table count vs chunk-reported count.
         chunk_note = ""
@@ -227,5 +229,10 @@ class TSIMetric(BaseMetric):
             justification=(
                 f"Table defect rate {raw * 100:.1f}% across {len(tables)} "
                 f"table(s).{chunk_note}"
+                + (" Severe — table content lost/broken." if (n_unparseable or raw >= 0.6)
+                   else "")
             ),
+            # DEFINITE only when a table is unparseable or severely broken
+            # (content clearly lost) — not for cosmetic header/ragged issues.
+            hard_fail=bool(n_unparseable) or raw >= 0.6,
         )

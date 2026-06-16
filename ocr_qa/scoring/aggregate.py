@@ -66,8 +66,12 @@ def build_page_report(
         page_score=pqs,
         token_count=token_count,
         image_path=image_path,
+        page_type=ctx.page_types.get(page.page_no, "unknown"),
+        text_density=ctx.text_density.get(page.page_no, 0.0),
+        native_reliable=ctx.native_reliable.get(page.page_no, False),
+        reading_order_conf=ctx.reading_order_conf.get(page.page_no, 1.0),
     )
-    decide_page(report, config)  # sets verdict
+    decide_page(report, config)  # sets verdict + soft_fail_count
     report.problems = build_problems(metrics, config.t_page) if report.verdict == "review" else []
     return report
 
@@ -91,10 +95,14 @@ def build_document_report(
         raw_images = {pi.page_no: pi.image_path for pi in ingested.pages}
         offset = min(raw_images) - min(p.page_no for p in pages)
 
+    from ocr_qa.metrics.registry import native_reliability
+
     page_reports: list[PageReport] = []
     total = len(pages)
     for i, page in enumerate(pages, start=1):
         native = ingested.native_for(page.page_no + offset) if ingested else None
+        # native-text reliability gate (set before run_page so XSA can read it)
+        ctx.native_reliable[page.page_no] = native_reliability(page, native)
         report = build_page_report(
             page, native, ctx, config, raw_images.get(page.page_no + offset)
         )

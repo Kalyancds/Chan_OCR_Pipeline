@@ -20,7 +20,19 @@ from ocr_qa.scoring.aggregate import build_document_report  # noqa: E402
 HERE = os.path.dirname(__file__)
 APP = os.path.normpath(os.path.join(HERE, "..", "app.py"))
 SAMPLE = os.path.normpath(os.path.join(HERE, "..", "sample"))
-STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict", "Export"]
+STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict",
+          "Export", "Guide"]
+
+
+def test_guide_renders_without_analysis():
+    """The Metrics Guide must work even before any document is analysed."""
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    at.session_state["stage"] = "Guide"
+    at.run()
+    assert not at.exception
+    body = " ".join(str(m.value) for m in at.markdown)
+    assert "How a page is sent to review" in body or "DEFINITE" in body
 
 
 def _doc(folder):
@@ -80,6 +92,53 @@ def test_faulty_page_shows_image_and_md(tmp_path):
     at.session_state["stage"] = "Faulty Pages"
     at.run()
     assert not at.exception, f"faulty view raised: {at.exception}"
+
+
+def test_reanalyze_button_recomputes_from_pages():
+    """Post-analysis, the sidebar Re-analyze button recomputes from the parsed
+    pages (no re-upload) and updates the report without error."""
+    pages, doc = _doc("bad_page")
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    _seed(at, pages, doc)
+    at.run()
+    btns = [b for b in at.sidebar.button if "Re-analyze" in str(b.label)]
+    assert btns, "Re-analyze button should appear after analysis"
+    btns[0].click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["doc"] is not None
+
+
+def test_no_reanalyze_button_before_analysis():
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.run()
+    assert not any("Re-analyze" in str(b.label) for b in at.sidebar.button)
+
+
+def test_folder_sources_detects_source_docs(tmp_path):
+    import ocr_qa.app as appmod
+    (tmp_path / "output.json").write_text("[]", encoding="utf-8")
+    (tmp_path / "scan.pdf").write_bytes(b"%PDF-1.4 stub")
+    srcs = appmod._folder_sources(str(tmp_path))
+    assert any(s.endswith("scan.pdf") for s in srcs)
+    assert appmod._folder_sources("does-not-exist") == []
+
+
+def test_folder_mode_analysis_runs():
+    """Selecting a folder of Chandra output (no per-file upload) analyzes it."""
+    good_dir = os.path.join(SAMPLE, "good_page")
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    at.session_state["chandra_folder"] = good_dir  # folder mode is the default
+    at.run()
+    btns = [b for b in at.button if "Analyze" in str(b.label)]
+    assert btns
+    btns[0].click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["doc"] is not None
+    assert at.session_state["doc"].document_verdict == "PASSED"
 
 
 def test_clean_doc_passes_verdict():

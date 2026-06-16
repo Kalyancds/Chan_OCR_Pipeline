@@ -38,6 +38,18 @@ class DocContext:
     ppl_page_raw: dict[int, float] = field(default_factory=dict)
     # per-page detected language {page_no: lang}
     languages: dict[int, str] = field(default_factory=dict)
+    # near-duplicate pages: {page_no: (other_page_no, jaccard_similarity)}
+    duplicate_of: dict[int, tuple] = field(default_factory=dict)
+    # ---- decision-support context (metric-review recommendations) ----------
+    page_types: dict[int, str] = field(default_factory=dict)
+    native_reliable: dict[int, bool] = field(default_factory=dict)
+    text_density: dict[int, float] = field(default_factory=dict)
+    reading_order_conf: dict[int, float] = field(default_factory=dict)
+
+    def is_prose_page(self, page_no: int) -> bool:
+        """Soft text-statistics metrics (SFC/TTR/PPL/PSW/LVR/OOV/WSA) are only
+        trustworthy on prose-bearing pages."""
+        return self.page_types.get(page_no, "mixed") in {"prose-heavy", "mixed"}
 
 
 # --------------------------------------------------------------------------- #
@@ -272,6 +284,7 @@ class BaseMetric(ABC):
         reliability: str = "high",
         applicable: bool = True,
         hard_fail: bool = False,
+        submetrics: Optional[dict] = None,
     ) -> MetricResult:
         return MetricResult(
             key=self.key,
@@ -289,6 +302,7 @@ class BaseMetric(ABC):
             reliability="low" if reliability == "low" else "high",
             applicable=applicable,
             hard_fail=hard_fail,
+            submetrics=submetrics or {},
         )
 
     def not_applicable(self, reason: str) -> MetricResult:
@@ -306,9 +320,15 @@ class BaseMetric(ABC):
     # ---- shared reliability gate -----------------------------------------
     @staticmethod
     def low_reliability(page: PageOCR, ctx: DocContext) -> bool:
+        """A text-statistics metric is low-reliability (and so must NOT count as
+        a soft failure) on short pages, undetermined language, or non-prose
+        page types — per the recommendation to apply SFC/TTR/PPL/PSW/LVR/OOV/WSA
+        only when enough prose text is present."""
         toks = word_tokens(page.prose_text())
         if len(toks) < ctx.config.short_page_token_floor:
             return True
         if not ctx.languages.get(page.page_no):
+            return True
+        if not ctx.is_prose_page(page.page_no):
             return True
         return False

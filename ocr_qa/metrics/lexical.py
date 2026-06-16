@@ -133,7 +133,10 @@ class LVRMetric(BaseMetric):
         bad = [t for t in toks if not token_is_valid(t, lang)]
         ratio = (total - len(bad)) / total
         score = _norm_lvr(ratio)
-        hard = ratio < ctx.config.lexical_warn  # < 0.80
+        # LVR is a SOFT supporting signal (metric-review recommendation): it no
+        # longer hard-fails a page on its own; low validity contributes to the
+        # soft-failure count and as evidence of garble.
+        below = ratio < ctx.config.lexical_warn  # < 0.80 (kept for messaging)
 
         counts = Counter(bad)
         evidence = [f"'{tok}' ×{c}" for tok, c in counts.most_common(8)] or [
@@ -182,10 +185,11 @@ class LVRMetric(BaseMetric):
             evidence=evidence,
             justification=(
                 f"Lexical validity {ratio * 100:.0f}% "
-                f"(threshold {ctx.config.lexical_good * 100:.0f}%; "
-                f"hard-fail below {ctx.config.lexical_warn * 100:.0f}%); "
+                f"(good {ctx.config.lexical_good * 100:.0f}%; "
+                f"soft-warn below {ctx.config.lexical_warn * 100:.0f}%); "
                 f"{len(bad)}/{total} prose words are not recognised."
+                + (" Below the warn line." if below else "")
             ),
             reliability="low" if self.low_reliability(page, ctx) else "high",
-            hard_fail=hard,
+            hard_fail=False,
         )

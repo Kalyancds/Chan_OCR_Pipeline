@@ -28,6 +28,7 @@ from ocr_qa.ingestion.normalizer import IngestionError, Normalizer
 from ocr_qa.ocr.chandra_parser import audit_page_counts
 from ocr_qa.ocr.client import MockChandraClient, RealChandraClient
 from ocr_qa.review.export import build_review_package, send_for_review
+from ocr_qa.review.pdf_report import build_pdf_report
 from ocr_qa.scoring.aggregate import build_document_report
 from ocr_qa.ui.components import (
     faulty_table_rows,
@@ -36,7 +37,10 @@ from ocr_qa.ui.components import (
     overlay_error_boxes,
     render_error_locations,
     render_fault_chips,
+    render_hero,
     render_metric_list,
+    render_metrics_guide,
+    render_page_context,
     render_verdict_badge,
     score_gauge,
     status_color,
@@ -44,8 +48,11 @@ from ocr_qa.ui.components import (
 
 st.set_page_config(page_title="OCR Quality Validation", layout="wide", page_icon="🔎")
 
-STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict", "Export"]
-STAGE_ICONS = ["📥", "⚙️", "🚩", "✅", "⚖️", "📦"]
+STAGES = ["Ingest", "Processing", "Faulty Pages", "Passed Pages", "Verdict",
+          "Export", "Guide"]
+STAGE_ICONS = ["📥", "⚙️", "🚩", "✅", "⚖️", "📦", "📖"]
+# stages reachable before any analysis has run
+ALWAYS_ON = {"Ingest", "Guide"}
 
 
 # --------------------------------------------------------------------------- #
@@ -63,6 +70,8 @@ def _init_state():
     ss.setdefault("human_calls", {})
     ss.setdefault("page_audit", None)
     ss.setdefault("passed_pick", None)
+    ss.setdefault("config", None)
+    ss.setdefault("chandra_folder", "")
 
 
 _init_state()
@@ -111,21 +120,97 @@ def sidebar_config() -> Config:
         cfg.weights = weights
         st.caption(f"Σ weights = {sum(weights.values()):.2f} (renormalised at runtime)")
 
+    # ---- re-analyze with current settings (no re-upload / re-parse needed) ----
+    st.sidebar.divider()
+    if st.session_state.get("pages"):
+        st.sidebar.markdown("**🔄 Re-run with current settings**")
+        st.sidebar.caption(
+            "Edit the weights/thresholds above, then click. Your edits only take "
+            "effect when you click — the analysis never restarts mid-edit."
+        )
+        if st.sidebar.button("🔄 Re-analyze", type="primary", use_container_width=True):
+            _rerun_analysis(cfg)
+    else:
+        st.sidebar.caption("Run an analysis (Ingest tab) to enable re-analyze with "
+                           "adjusted weights.")
+
     return cfg
+
+
+def _rerun_analysis(cfg: Config) -> None:
+    """Recompute the report from the already-parsed pages using the current
+    sidebar weights/thresholds — no re-upload, no re-parse, no re-render."""
+    ss = st.session_state
+    if not ss.get("pages"):
+        return
+    bar = st.sidebar.progress(0.0, text="Re-analyzing…")
+    total = len(ss.pages)
+
+    def cb(i, tot, page_no):
+        bar.progress(i / tot, text=f"Page {i}/{tot} — re-scoring (17 metrics)")
+
+    doc = build_document_report(ss.pages, ss.ingested, cfg, progress_cb=cb)
+    bar.empty()
+    ss.doc = doc
+    ss.config = cfg
+    ss.human_calls = {}
+    ss.faulty_pick = doc.faulty_pages[0] if doc.faulty_pages else None
+    ss.passed_pick = None
+    ss.stage = "Faulty Pages" if doc.faulty_pages else "Verdict"
+    st.rerun()
+
+
+# --------------------------------------------------------------------------- #
+# folder helpers (local-disk folder selection of Chandra output)
+# --------------------------------------------------------------------------- #
+def _folder_sources(folder: str) -> list[str]:
+    """Source documents (for page images) found in a folder, by extension."""
+    import glob
+    if not folder or not os.path.isdir(folder):
+        return []
+    out: list[str] = []
+    for ext in ("*.pdf", "*.pptx", "*.docx", "*.zip"):
+        out.extend(sorted(glob.glob(os.path.join(folder, ext))))
+    return out
+
+
+def _pick_folder():
+    """Native folder picker (works because the app runs locally). Best-effort —
+    if a GUI dialog isn't available, the user types the path instead."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(title="Select the Chandra output folder")
+        root.destroy()
+        return path or None
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------- #
 # analyze
 # --------------------------------------------------------------------------- #
-def run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc=None, omh=None):
+def run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc=None, omh=None,
+                 folder=None):
     ss = st.session_state
     norm: Normalizer = ss.normalizer
 
-    # 1) ingest source -> page images + native text (optional but recommended)
+    # 1) ingest source -> page images + native text. Prefer an explicit upload;
+    #    otherwise auto-detect a source document inside the chosen folder.
     ingested = None
+    src_path = None
     if source_file is not None:
+        src_path = norm.save_upload(source_file)
+    elif folder:
+        srcs = _folder_sources(folder)
+        if srcs:
+            src_path = srcs[0]
+    if src_path:
         try:
-            src_path = norm.save_upload(source_file)
             ingested = norm.ingest(src_path)
         except IngestionError as exc:
             st.warning(f"Ingestion degraded: {exc}")
@@ -138,16 +223,25 @@ def run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc=None, omh=None)
         if ocr_status == "Run Chandra OCR":
             client = RealChandraClient()
             try:
-                pages = client.run(norm.save_upload(source_file) if source_file else "")
+                pages = client.run(src_path or "")
             except NotImplementedError as exc:
                 st.error(str(exc))
                 return
-        else:  # OCR already done
-            if not oj:
-                st.error("Please upload at least output.json.")
-                return
+        else:  # OCR already done — from a folder OR individual uploads
             client = MockChandraClient()
-            bundle = client.get_bundle(oj, omd, omm, omc, omh)
+            if folder:
+                if not os.path.isdir(folder):
+                    st.error(f"Folder not found: {folder}")
+                    return
+                if not os.path.exists(os.path.join(folder, "output.json")):
+                    st.error(f"No output.json found in folder: {folder}")
+                    return
+                bundle = client.from_dir(folder)
+            else:
+                if not oj:
+                    st.error("Please upload at least output.json (or choose a folder).")
+                    return
+                bundle = client.get_bundle(oj, omd, omm, omc, omh)
             pages = client.parser.parse(
                 bundle.output_json, bundle.output_md, bundle.metadata,
                 bundle.output_chunks, bundle.output_html,
@@ -171,12 +265,13 @@ def run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc=None, omh=None)
     total = len(pages)
 
     def cb(i, tot, page_no):
-        bar.progress(i / tot, text=f"Page {i}/{tot} — 14 metrics")
+        bar.progress(i / tot, text=f"Page {i}/{tot} — 17 metrics")
 
     doc = build_document_report(pages, ingested, cfg, progress_cb=cb)
     bar.empty()
 
     ss.doc, ss.ingested, ss.pages = doc, ingested, pages
+    ss.config = cfg
     ss.human_calls = {}
     ss.faulty_pick = doc.faulty_pages[0] if doc.faulty_pages else None
     ss.stage = "Faulty Pages" if doc.faulty_pages else "Verdict"
@@ -200,19 +295,52 @@ def stage_ingest(cfg):
             ocr_status = st.selectbox("OCR status", ["OCR already done", "Run Chandra OCR"])
 
         oj = omd = omm = omc = omh = None
+        folder = None
         if ocr_status == "OCR already done":
-            st.markdown("**Chandra output** — `output.json` required; the rest optional:")
-            d1, d2 = st.columns(2)
-            oj = d1.file_uploader("output.json", type=["json"], key="oj")
-            omd = d2.file_uploader("output.md", type=["md", "txt"], key="omd")
-            d3, d4 = st.columns(2)
-            omm = d3.file_uploader("output.metadata.json (optional)", type=["json"], key="omm")
-            omc = d4.file_uploader("output_chunks.json (optional)", type=["json"], key="omc")
-            omh = st.file_uploader(
-                "output.html (optional — richer OCR view + JSON↔HTML check)",
-                type=["html", "htm"], key="omh",
+            mode = st.radio(
+                "Provide Chandra output by", ["Folder on disk", "Upload files"],
+                horizontal=True,
+                help="Folder: point to a directory containing the output.* files "
+                     "(read locally). Upload: pick each file individually.",
             )
-            st.caption("metadata is also read from inside output.json if not supplied.")
+            if mode == "Folder on disk":
+                bcol, _ = st.columns([1, 4])
+                if bcol.button("📂 Browse…"):
+                    picked = _pick_folder()
+                    if picked:
+                        ss = st.session_state
+                        ss["chandra_folder"] = picked
+                        st.rerun()
+                folder = st.text_input(
+                    "Folder path (contains output.json / .md / .metadata.json / "
+                    "output_chunks.json / output.html)",
+                    value=st.session_state.get("chandra_folder", ""),
+                    placeholder=r"C:\Users\you\Downloads\my_doc_ocr",
+                )
+                if folder:
+                    found = {f: os.path.exists(os.path.join(folder, f)) for f in
+                             ("output.json", "output.md", "output.metadata.json",
+                              "output_chunks.json", "output.html")}
+                    st.caption("Detected → " + "  ".join(
+                        f"{k} {'✅' if v else '—'}" for k, v in found.items()))
+                    srcs = _folder_sources(folder)
+                    if srcs:
+                        st.caption(f"Source for page images: auto-detected "
+                                   f"`{os.path.basename(srcs[0])}` in folder "
+                                   f"(or upload one above to override).")
+            else:
+                st.markdown("**Chandra output** — `output.json` required; rest optional:")
+                d1, d2 = st.columns(2)
+                oj = d1.file_uploader("output.json", type=["json"], key="oj")
+                omd = d2.file_uploader("output.md", type=["md", "txt"], key="omd")
+                d3, d4 = st.columns(2)
+                omm = d3.file_uploader("output.metadata.json (optional)", type=["json"], key="omm")
+                omc = d4.file_uploader("output_chunks.json (optional)", type=["json"], key="omc")
+                omh = st.file_uploader(
+                    "output.html (optional — richer OCR view + JSON↔HTML check)",
+                    type=["html", "htm"], key="omh",
+                )
+                st.caption("metadata is also read from inside output.json if not supplied.")
         else:
             st.info(
                 "Run-Chandra-OCR is a stub in this build (no live endpoint). The "
@@ -220,7 +348,7 @@ def stage_ingest(cfg):
             )
 
     if st.button("🔬 Analyze", type="primary", use_container_width=True):
-        run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc, omh)
+        run_analysis(cfg, source_file, ocr_status, oj, omd, omm, omc, omh, folder)
 
 
 # --------------------------------------------------------------------------- #
@@ -336,6 +464,7 @@ def render_page_detail(report, page, is_faulty: bool) -> None:
         f"{_pqs_pill(report.page_score)}{badge}</div>",
         unsafe_allow_html=True,
     )
+    render_page_context(report)
 
     if is_faulty:
         st.markdown("**Faults on this page**")
@@ -402,7 +531,7 @@ def render_page_detail(report, page, is_faulty: bool) -> None:
                        "HTML view always matches the OCR.")
 
     st.divider()
-    st.markdown("#### 🔬 Statistical metrics (14)")
+    st.markdown("#### 🔬 Statistical metrics (17)")
     render_metric_list(report.metrics, page_no=pick)
 
 
@@ -535,24 +664,47 @@ def stage_export():
     if not doc:
         st.info("Run **Analyze** first.")
         return
-    if not doc.faulty_pages:
-        st.success("No faulty pages to export. The document passed. ✅")
-        return
+    cfg = ss.get("config") or Config()
 
+    # ---- full PDF report (available for PASS or FAIL) ----
     with st.container(border=True):
-        st.caption("Faulty-pages-only human-review package: review.json / review.csv / "
-                   "review.md / page images.")
-        if st.button("📦 Build review package", type="primary"):
+        st.markdown("**📄 Full PDF report**")
+        st.caption("Title + document name + PASS/FAIL + a findings table (why each "
+                   "page failed, with justification) + per-page summary + a metrics "
+                   "reference with LaTeX formulas and the exact file used per metric.")
+        if st.button("📄 Generate PDF report", type="primary"):
+            out = os.path.join(ss.normalizer.work_dir, f"{doc.doc_id}_report.pdf")
+            try:
+                src_name = ss.ingested.doc_id if ss.ingested else doc.doc_id
+                with st.spinner("Rendering report (formulas, tables)…"):
+                    path = build_pdf_report(doc, ss.ingested, cfg, out,
+                                            page_audit=ss.page_audit, source_name=src_name)
+                with open(path, "rb") as fh:
+                    st.download_button(
+                        "⬇️ Download PDF report", fh.read(),
+                        file_name=os.path.basename(path), mime="application/pdf",
+                        type="primary",
+                    )
+                st.success(f"Built {os.path.basename(path)}.")
+            except Exception as exc:
+                st.error(f"Could not build PDF report: {exc}")
+
+    # ---- faulty-pages review package (only when there are faulty pages) ----
+    if not doc.faulty_pages:
+        st.success("No faulty pages — the document passed. (PDF report still "
+                   "available above.) ✅")
+        return
+    with st.container(border=True):
+        st.markdown("**📦 Human-review package (faulty pages only)**")
+        st.caption("review.json / review.csv / review.md / page images, zipped.")
+        if st.button("📦 Build review package"):
             out = os.path.join(ss.normalizer.work_dir, f"{doc.doc_id}_review.zip")
             try:
                 path = build_review_package(doc, ss.ingested, out)
                 with open(path, "rb") as fh:
                     st.download_button(
-                        "⬇️ Download review package (zip)",
-                        fh.read(),
-                        file_name=os.path.basename(path),
-                        mime="application/zip",
-                        type="primary",
+                        "⬇️ Download review package (zip)", fh.read(),
+                        file_name=os.path.basename(path), mime="application/zip",
                     )
                 st.success(f"Built {os.path.basename(path)} with "
                            f"{len(doc.faulty_pages)} faulty page(s).")
@@ -569,7 +721,7 @@ def render_nav():
     ss = st.session_state
     cols = st.columns(len(STAGES))
     for i, name in enumerate(STAGES):
-        disabled = name not in ("Ingest",) and ss.doc is None
+        disabled = name not in ALWAYS_ON and ss.doc is None
         active = ss.stage == name
         if cols[i].button(
             f"{STAGE_ICONS[i]} {i + 1}·{name}",
@@ -584,9 +736,7 @@ def render_nav():
 
 def main():
     inject_css()
-    st.markdown("## 🔎 OCR Quality Validation — Chandra")
-    st.caption("Statistically validates page-wise Chandra OCR output and surfaces "
-               "the pages a human must check.")
+    render_hero()
     cfg = sidebar_config()
     render_nav()
     st.divider()
@@ -604,6 +754,8 @@ def main():
         stage_verdict()
     elif stage == "Export":
         stage_export()
+    elif stage == "Guide":
+        render_metrics_guide()
 
 
 if __name__ == "__main__":

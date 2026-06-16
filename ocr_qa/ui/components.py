@@ -49,8 +49,33 @@ def status_color(status: str) -> str:
 APP_CSS = """
 <style>
 :root { --good:#1a9850; --warn:#e8870c; --bad:#d73027; --na:#9aa0a6; }
-.block-container { padding-top: 1.4rem; max-width: 1500px; }
+.block-container { padding-top: 1.2rem; max-width: 1500px; }
 h1, h2, h3 { letter-spacing:-.01em; }
+
+/* hero header */
+.hero { background:linear-gradient(100deg,#1f2a44 0%,#2f6fed 100%); color:#fff;
+  border-radius:14px; padding:1.0rem 1.3rem; margin:.1rem 0 .5rem;
+  box-shadow:0 6px 18px rgba(47,111,237,.18); }
+.hero h1 { color:#fff; font-size:1.5rem; margin:0; }
+.hero p { color:#dbe6ff; margin:.2rem 0 0; font-size:.9rem; }
+
+/* status legend */
+.legend { display:flex; gap:1rem; flex-wrap:wrap; font-size:.8rem; color:#555;
+  align-items:center; margin:.1rem 0 .2rem; }
+.legend .sw { display:inline-block; width:11px; height:11px; border-radius:50%;
+  margin-right:.3rem; vertical-align:middle; }
+
+/* guide */
+.guide-group { font-weight:800; font-size:1.05rem; margin:.7rem 0 .35rem;
+  padding-left:.5rem; border-left:5px solid #ccc; }
+.src-chip { display:inline-block; background:#eef2f7; border:1px solid #dde3ea;
+  color:#33415c; padding:.06rem .45rem; border-radius:6px; margin:.1rem .2rem 0 0;
+  font-size:.72rem; font-family:ui-monospace,Consolas,monospace; }
+.conf { display:inline-block; padding:.05rem .45rem; border-radius:999px;
+  font-size:.66rem; font-weight:700; color:#fff; }
+.conf.Definite { background:#b00020; }
+.conf.Statistical { background:#e8870c; }
+.conf.Mixed { background:#6a51c9; }
 
 /* nav pills */
 div[data-testid="stHorizontalBlock"] .ocrqa-nav { }
@@ -73,6 +98,17 @@ div[data-testid="stHorizontalBlock"] .ocrqa-nav { }
   font-size:.64rem; font-weight:700; padding:.04rem .45rem; border-radius:6px; }
 .tag-rel { background:#fff8e1; color:#a6791f; border:1px solid #f0dca0;
   font-size:.62rem; padding:.04rem .4rem; border-radius:6px; }
+.tier-hard { background:#2a2f45; color:#fff; font-size:.6rem; font-weight:700;
+  padding:.04rem .45rem; border-radius:6px; letter-spacing:.03em; }
+.tier-soft { background:#eef2f7; color:#5b6472; border:1px solid #dde3ea;
+  font-size:.6rem; font-weight:700; padding:.04rem .45rem; border-radius:6px; }
+.ctxstrip { display:flex; gap:.4rem; flex-wrap:wrap; margin:.2rem 0 .4rem; }
+.ctx { background:#f3f6fb; border:1px solid #e2e8f1; border-radius:7px;
+  padding:.18rem .5rem; font-size:.74rem; color:#33415c; }
+.ctx b { color:#1f2a44; }
+.submx { display:flex; gap:.35rem; flex-wrap:wrap; margin:.2rem 0; }
+.submx .s { font-size:.72rem; border:1px solid #e2e8f1; border-radius:6px;
+  padding:.1rem .4rem; background:#fafbfd; }
 
 /* score bar */
 .bar { height:7px; background:#eef0f3; border-radius:7px; overflow:hidden; margin:.15rem 0 .35rem;}
@@ -121,6 +157,138 @@ def inject_css() -> None:
     import streamlit as st
 
     st.markdown(APP_CSS, unsafe_allow_html=True)
+
+
+def render_hero() -> None:
+    import streamlit as st
+
+    st.markdown(
+        "<div class='hero'><h1>🔎 OCR Quality Validation — Chandra</h1>"
+        "<p>Statistically validates page-wise Chandra OCR output, pinpoints where "
+        "errors are, and tells you which pages a human must check.</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_status_legend() -> None:
+    import streamlit as st
+
+    st.markdown(
+        "<div class='legend'>"
+        f"<span><span class='sw' style='background:{_STATUS_COLOR['good']}'></span>Good</span>"
+        f"<span><span class='sw' style='background:{_STATUS_COLOR['warn']}'></span>Warn</span>"
+        f"<span><span class='sw' style='background:{_STATUS_COLOR['bad']}'></span>Bad</span>"
+        "<span><span class='conf Definite'>DEFINITE</span> structural fact</span>"
+        "<span><span class='conf Statistical'>STATISTICAL</span> threshold flag</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Metrics Guide
+# --------------------------------------------------------------------------- #
+def render_metrics_guide() -> None:
+    """Self-documenting reference: how scoring works, which file feeds each
+    metric, and a per-metric table with formulas + examples."""
+    import streamlit as st
+
+    from ocr_qa.config import DEFAULT_CONFIG
+    from ocr_qa.metrics.catalog import CATALOG, FILE_MAP, GROUPS, weight_for
+    from ocr_qa.metrics.registry import METRICS
+
+    by_key = {m.key: m for m in METRICS}
+    cfg = DEFAULT_CONFIG
+
+    st.subheader("📖 Metrics Guide")
+    st.caption("What each statistical metric measures, the file it reads, its "
+               "formula, and a worked example.")
+
+    # ---- how scoring works (tier-based decisioning) ----
+    with st.container(border=True):
+        st.markdown("#### How a page is sent to review")
+        st.markdown(
+            f"Metrics are split into two tiers (to avoid false positives):\n"
+            f"- **DEFINITE (hard) triggers** — one is enough to flag a page: "
+            f"inference-failed content (IFR) · major block/page-count mismatch (BCC) · "
+            f"empty content blocks (EMP) · markup that breaks extraction (HMW) · "
+            f"unexpected duplicate page (DUP) · mojibake/encoding corruption (CED) · "
+            f"definite repetition loop / reliable native-CER / ≥2 artefact "
+            f"disagreements (XSA) · severe geometry or table content loss (BGC/TSI).\n"
+            f"- **SOFT signals** (LVR, OOV, WSA, PPL, TTR, PSW, SFC, KL-divergence) "
+            f"are supporting evidence only — they flag a page **only when ≥ "
+            f"{cfg.soft_fail_threshold} of them fail together on a text-rich page**.\n\n"
+            f"**Page → review** if (1 DEFINITE failure) **OR** (≥ "
+            f"{cfg.soft_fail_threshold} soft failures) **OR** PQS < "
+            f"{cfg.pqs_backstop:.0f} (safety net). "
+            f"**Document = PASSED** if DQS ≥ {cfg.t_doc:.0f}, faulty ratio ≤ "
+            f"{cfg.doc_flag_ratio*100:.0f}%, and no page hit a DEFINITE condition.\n\n"
+            f"Soft text-statistics metrics apply **only to prose-bearing pages with "
+            f"enough text** (page-type / token gating), and native CER/WER is used "
+            f"**only when the native PDF text layer is reliable**."
+        )
+        render_status_legend()
+
+    # ---- file -> metric map ----
+    with st.expander("Which file feeds which metric", expanded=False):
+        st.dataframe(
+            [{"File / resource": f, "Contains": c, "Used by": u}
+             for f, c, u in FILE_MAP],
+            use_container_width=True, hide_index=True,
+        )
+
+    # ---- summary table ----
+    from ocr_qa.config import HARD_METRICS
+
+    st.markdown("#### All 17 metrics at a glance")
+    rows = []
+    for i, e in enumerate(CATALOG, start=1):
+        m = by_key.get(e["key"])
+        rows.append({
+            "#": i,
+            "Key": e["key"],
+            "Metric": m.name if m else e["key"],
+            "Group": GROUPS[e["group"]][0],
+            "Trigger": "DEFINITE (hard)" if e["key"] in HARD_METRICS else "soft signal",
+            "Reads": ", ".join(e["reads"][:3]) + ("…" if len(e["reads"]) > 3 else ""),
+            "Weight": f"{weight_for(e['key']):.2f}",
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True, height=430)
+
+    # ---- per-group detail cards ----
+    st.markdown("#### Detail & examples")
+    last_group = None
+    for e in CATALOG:
+        if e["group"] != last_group:
+            last_group = e["group"]
+            label, color = GROUPS[e["group"]]
+            st.markdown(
+                f"<div class='guide-group' style='border-left-color:{color}'>"
+                f"{label}</div>", unsafe_allow_html=True,
+            )
+        m = by_key.get(e["key"])
+        with st.container(border=True):
+            st.markdown(
+                f"<div class='mhead'>"
+                f"<span class='mname'>{html.escape(m.name if m else e['key'])}</span>"
+                f"<span class='mkey'>{e['key']}</span>"
+                f"<span class='conf {e['confidence']}'>{e['confidence'].upper()}</span>"
+                f"<span class='mscore' style='font-size:.8rem;color:#888'>"
+                f"weight {weight_for(e['key']):.2f}</span></div>",
+                unsafe_allow_html=True,
+            )
+            if m and m.what_it_measures:
+                st.markdown(f"<span class='val'>{html.escape(m.what_it_measures)}</span>",
+                            unsafe_allow_html=True)
+            st.markdown("<div class='lbl'>Formula</div>"
+                        f"<div class='formula'>{html.escape(e['formula'])}</div>",
+                        unsafe_allow_html=True)
+            st.markdown("<div class='lbl'>Reads</div>"
+                        + "".join(f"<span class='src-chip'>{html.escape(s)}</span>"
+                                  for s in e["reads"]),
+                        unsafe_allow_html=True)
+            st.markdown(f"<div class='example'>💡 <b>Example:</b> "
+                        f"{html.escape(e['example'])}</div>", unsafe_allow_html=True)
 
 
 def _badge(status: str) -> str:
@@ -207,6 +375,17 @@ def _render_card_body(m: MetricResult, page_no=None) -> None:
         f"<ul class='scorelist'>{''.join(bullets)}</ul>",
         unsafe_allow_html=True,
     )
+    # 3b) sub-metric breakdown (XSA) — explainable split, not one worst-of score
+    if m.submetrics:
+        _LBL = {"repetition": "Repetition", "json_md": "JSON↔MD",
+                "json_chunk": "JSON↔chunk", "json_html": "JSON↔HTML",
+                "native_cer": "Native CER"}
+        chips = "".join(
+            f"<span class='s'>{_LBL.get(k, k)}: <b>{v:.0f}</b></span>"
+            for k, v in m.submetrics.items()
+        )
+        st.markdown(f"<div class='lbl'>Sub-metric breakdown</div>"
+                    f"<div class='submx'>{chips}</div>", unsafe_allow_html=True)
     # 4) this-page worked example
     if m.example:
         where = f"page&nbsp;{page_no}" if page_no is not None else "this page"
@@ -227,8 +406,13 @@ def render_metric_card(m: MetricResult, expanded: bool, page_no=None) -> None:
     color = status_color(m.status)
     with st.container(border=True):
         extra = ""
+        # tier chip: DEFINITE-eligible (hard) vs supporting-only (soft)
+        if m.tier == "hard":
+            extra += " <span class='tier-hard'>DEFINITE-eligible</span>"
+        else:
+            extra += " <span class='tier-soft'>soft signal</span>"
         if m.hard_fail:
-            extra += " <span class='tag-hard'>HARD</span>"
+            extra += " <span class='tag-hard'>HARD FAIL</span>"
         if m.reliability == "low":
             extra += " <span class='tag-rel'>low reliability</span>"
         if not m.applicable:
@@ -277,6 +461,23 @@ def render_metric_list(metrics: list[MetricResult], page_no=None) -> None:
 # --------------------------------------------------------------------------- #
 # fault chips
 # --------------------------------------------------------------------------- #
+def render_page_context(report: PageReport) -> None:
+    """Decision-support context strip (page type, density, native reliability,
+    reading-order confidence, soft-signal count)."""
+    import streamlit as st
+
+    nat = "reliable" if report.native_reliable else "n/a / unreliable"
+    chips = [
+        f"<span class='ctx'>Page type: <b>{html.escape(report.page_type)}</b></span>",
+        f"<span class='ctx'>Tokens: <b>{report.token_count}</b></span>",
+        f"<span class='ctx'>Text density: <b>{report.text_density:.0f}</b>/Mpx²</span>",
+        f"<span class='ctx'>Native text: <b>{nat}</b></span>",
+        f"<span class='ctx'>Reading-order conf: <b>{report.reading_order_conf:.2f}</b></span>",
+        f"<span class='ctx'>Soft signals: <b>{report.soft_fail_count}</b></span>",
+    ]
+    st.markdown(f"<div class='ctxstrip'>{''.join(chips)}</div>", unsafe_allow_html=True)
+
+
 def render_fault_chips(problems: list[str]) -> None:
     import streamlit as st
 

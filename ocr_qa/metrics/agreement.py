@@ -138,10 +138,11 @@ class XSAMetric(BaseMetric):
         cfg = ctx.config
         text = page.prose_text() or page.text
         evidence: list[str] = []
-        subscores: list[float] = []
-        hard = False
+        sub: dict[str, float] = {}          # submetric breakdown (0-100)
+        warn = cfg.xsa_md_sim_warn
+        native_ok = ctx.native_reliable.get(page.page_no, False)
 
-        # (a) repetition --------------------------------------------------
+        # (a) repetition / hallucination loop -----------------------------
         rep = _repetition(text, cfg.xsa_repeat_ngram, cfg.xsa_repeat_max)
         rep_score = 100.0
         rep_score = min(rep_score, lerp_score(rep["trigram_rep"], 0.1, 0.6))
@@ -152,134 +153,105 @@ class XSAMetric(BaseMetric):
             )
         if rep["hard"]:
             rep_score = 0.0
-            hard = True
             evidence.append(
                 f"repeated span '{rep['longest_span']}' ×{rep['max_ngram_count']} "
-                f"(>{cfg.xsa_repeat_max}) — likely VLM loop"
+                f"(>{cfg.xsa_repeat_max}) — definite VLM loop"
             )
         elif rep["max_ngram_count"] > 1:
-            evidence.append(
-                f"top {cfg.xsa_repeat_ngram}-gram '{rep['longest_span']}' "
-                f"×{rep['max_ngram_count']}"
-            )
-        evidence.append(
-            f"trigram repetition {rep['trigram_rep'] * 100:.0f}%, "
-            f"gzip ratio {rep['gzip_ratio']:.1f}"
-        )
-        subscores.append(rep_score)
+            evidence.append(f"top {cfg.xsa_repeat_ngram}-gram "
+                            f"'{rep['longest_span']}' ×{rep['max_ngram_count']}")
+        sub["repetition"] = round(rep_score, 1)
 
-        # (b) json <-> md  (word coverage: robust to markdown formatting; only
-        #     genuine content loss lowers it, not '##'/'|'/link syntax) --------
+        # (b/d/e) artefact-agreement sub-parts (JSON vs MD / chunk / HTML) -
+        artefact_fail = 0           # independent artefact disagreements
         sim = _text_recall(page.text, page.md_text)
         if sim is not None:
-            md_score = lerp_score(1.0 - sim, 1.0 - 0.85, 1.0 - 0.40)
-            subscores.append(md_score)
-            if sim < cfg.xsa_md_sim_warn:
-                evidence.append(
-                    f"JSON↔MD word coverage {sim * 100:.0f}% (< "
-                    f"{cfg.xsa_md_sim_warn * 100:.0f}%) — content missing from MD"
-                )
+            sub["json_md"] = lerp_score(1.0 - sim, 1.0 - 0.85, 1.0 - 0.40)
+            if sim < warn:
+                artefact_fail += 1
+                evidence.append(f"JSON↔MD word coverage {sim * 100:.0f}% (< "
+                                f"{warn * 100:.0f}%) — content missing from MD")
             else:
                 evidence.append(f"JSON↔MD word coverage {sim * 100:.0f}%")
-
-        # (c) native ------------------------------------------------------
-        nat = _native_agreement(text, native_text)
-        if nat is not None:
-            cer_score = lerp_score(nat["cer"], 0.02, cfg.xsa_cer_bad * 2)
-            subscores.append(cer_score)
-            if nat["cer"] > cfg.xsa_cer_bad:
-                hard = True
-                evidence.append(
-                    f"CER {nat['cer'] * 100:.1f}% (> {cfg.xsa_cer_bad * 100:.0f}%) "
-                    f"vs native text, WER {nat['wer'] * 100:.1f}%"
-                )
-            else:
-                evidence.append(
-                    f"CER {nat['cer'] * 100:.1f}%, WER {nat['wer'] * 100:.1f}% "
-                    f"vs native text"
-                )
-
-        # (d) json <-> chunk (output_chunks.json) -------------------------
         recall = _text_recall(text, page.chunk_text)
         if recall is not None:
-            chunk_score = lerp_score(1.0 - recall, 1.0 - 0.85, 1.0 - 0.40)
-            subscores.append(chunk_score)
-            if recall < cfg.xsa_md_sim_warn:
-                evidence.append(
-                    f"JSON↔chunk coverage {recall * 100:.0f}% (< "
-                    f"{cfg.xsa_md_sim_warn * 100:.0f}%) — page content disagrees "
-                    f"with output_chunks"
-                )
+            sub["json_chunk"] = lerp_score(1.0 - recall, 1.0 - 0.85, 1.0 - 0.40)
+            if recall < warn:
+                artefact_fail += 1
+                evidence.append(f"JSON↔chunk coverage {recall * 100:.0f}% (< "
+                                f"{warn * 100:.0f}%) — disagrees with output_chunks")
             else:
                 evidence.append(f"JSON↔chunk coverage {recall * 100:.0f}%")
-
-        # (e) json <-> html (output.html) --------------------------------
         html_sim = _json_html_similarity(page.text, page.html_text)
         if html_sim is not None:
-            html_score = lerp_score(1.0 - html_sim, 1.0 - 0.9, 1.0 - 0.3)
-            subscores.append(html_score)
-            if html_sim < cfg.xsa_md_sim_warn:
-                evidence.append(
-                    f"JSON↔HTML similarity {html_sim * 100:.0f}% (< "
-                    f"{cfg.xsa_md_sim_warn * 100:.0f}%) — JSON and HTML disagree"
-                )
+            sub["json_html"] = lerp_score(1.0 - html_sim, 1.0 - 0.9, 1.0 - 0.3)
+            if html_sim < warn:
+                artefact_fail += 1
+                evidence.append(f"JSON↔HTML similarity {html_sim * 100:.0f}% (< "
+                                f"{warn * 100:.0f}%) — JSON and HTML disagree")
             else:
                 evidence.append(f"JSON↔HTML similarity {html_sim * 100:.0f}%")
 
-        score = min(subscores) if subscores else 100.0
+        # (c) native CER/WER — only when native is reliable+aligned AND the page
+        #     is prose (CER vs full native text on table/short pages is noise).
+        #     It is the LEAST trustworthy source, so it COUNTS AS ONE artefact
+        #     disagreement (needs corroboration); it is never a standalone hard.
+        nat = None
+        cer_fail = False
+        if native_text and native_text.strip():
+            if native_ok and ctx.is_prose_page(page.page_no):
+                nat = _native_agreement(text, native_text)
+                if nat is not None:
+                    sub["native_cer"] = lerp_score(nat["cer"], 0.02, cfg.xsa_cer_bad * 2)
+                    cer_fail = nat["cer"] > cfg.xsa_cer_bad
+                    if cer_fail:
+                        artefact_fail += 1
+                        evidence.append(
+                            f"CER {nat['cer'] * 100:.1f}% (> {cfg.xsa_cer_bad * 100:.0f}%) "
+                            f"vs native text — counts as one artefact disagreement")
+                    else:
+                        evidence.append(
+                            f"CER {nat['cer'] * 100:.1f}%, WER {nat['wer'] * 100:.1f}% "
+                            f"vs native text")
+            else:
+                evidence.append("native CER/WER skipped — native layer unreliable/"
+                                "misaligned or non-prose page (avoids false positives)")
+
+        # ---- HARD rule: a definite repetition loop, OR >=2 INDEPENDENT artefact
+        #      disagreements (JSON vs MD/chunk/HTML/native). A lone native-CER or
+        #      single-artefact mismatch is NOT a hard fail (false-positive fix). -
+        hard = bool(rep["hard"]) or (artefact_fail >= 2)
+
+        # score: MEAN of available sub-parts (not worst-of, so one weak check
+        # no longer collapses XSA); clamped low when a hard condition fires.
+        scores = list(sub.values())
+        score = round(sum(scores) / len(scores), 1) if scores else 100.0
+        if hard:
+            score = min(score, 20.0)
         status = "good" if score >= 70 else ("warn" if score >= 50 else "bad")
 
         locations = []
         if rep["max_ngram_count"] > 1 and rep["longest_span"]:
-            b = find_block_for(page, rep["longest_span"])
             locations.append(loc(
-                "repetition",
-                "definite" if rep["hard"] else "statistical",
-                block=b,
-                snippet=rep["longest_span"],
-            ))
+                "repetition", "definite" if rep["hard"] else "statistical",
+                block=find_block_for(page, rep["longest_span"]),
+                snippet=rep["longest_span"]))
 
-        parts = ["repetition"]
-        if sim is not None:
-            parts.append("JSON↔MD")
-        if nat is not None:
-            parts.append("native-CER")
-        if recall is not None:
-            parts.append("JSON↔chunk")
-        if html_sim is not None:
-            parts.append("JSON↔HTML")
-
-        # worked example from the worst available sub-part
         if rep["hard"]:
-            example = (
-                f"The phrase '{rep['longest_span']}' repeats {rep['max_ngram_count']}× "
-                f"on this page — more than the {cfg.xsa_repeat_max}× limit. That is a "
-                f"classic VLM hallucination loop, so the page is flagged."
-            )
-        elif nat is not None and nat["cer"] > cfg.xsa_cer_bad:
-            example = (
-                f"Against the PDF's own text layer the OCR has {nat['cer'] * 100:.0f}% "
-                f"character error (limit {cfg.xsa_cer_bad * 100:.0f}%) — i.e. about "
-                f"1 in {max(1, round(1 / max(nat['cer'], 1e-6)))} characters is wrong."
-            )
-        elif recall is not None and recall < cfg.xsa_md_sim_warn:
-            example = (
-                f"Only {recall * 100:.0f}% of this page's words also appear in the "
-                f"output_chunks text for it — the two Chandra artefacts disagree, "
-                f"suggesting content was lost or shuffled."
-            )
-        elif sim is not None and sim < cfg.xsa_md_sim_warn:
-            example = (
-                f"Only {sim * 100:.0f}% of this page's words appear in the Markdown "
-                f"output — content seems to be missing from output.md (formatting "
-                f"differences alone would not lower this)."
-            )
+            example = (f"The phrase '{rep['longest_span']}' repeats "
+                       f"{rep['max_ngram_count']}× (> {cfg.xsa_repeat_max}) — a definite "
+                       f"hallucination loop, so the page is flagged.")
+        elif artefact_fail >= 2:
+            example = (f"{artefact_fail} independent sources disagree (among JSON vs "
+                       f"MD/chunk/HTML and native CER) — multiple sources lost content, "
+                       f"so this is a definite cross-source failure.")
+        elif artefact_fail == 1:
+            example = ("Only one source disagrees" + (" (native CER)" if cer_fail else "")
+                       + " — recorded as a soft signal, NOT a hard failure (a single "
+                       "weak sub-check no longer forces review).")
         else:
-            example = (
-                f"No repeated phrases (top {cfg.xsa_repeat_ngram}-gram seen "
-                f"{rep['max_ngram_count']}×) and the JSON/MD/chunk texts agree → the "
-                f"page is internally consistent."
-            )
+            example = ("No repetition loop and the sources agree → the page is "
+                       "internally consistent.")
 
         return self.result(
             raw_value=rep["trigram_rep"],
@@ -288,20 +260,24 @@ class XSAMetric(BaseMetric):
             threshold={
                 "repeat_hard_ngram": cfg.xsa_repeat_ngram,
                 "repeat_hard_max": cfg.xsa_repeat_max,
-                "md_sim_warn": cfg.xsa_md_sim_warn,
+                "artefact_fail_for_hard": 2,
+                "md_sim_warn": warn,
                 "cer_bad": cfg.xsa_cer_bad,
+                "native_reliable": native_ok,
             },
-            how_computed="worst of available sub-parts: "
-            + " + ".join(parts)
-            + ".",
+            how_computed="split sub-metrics (repetition, JSON↔MD, JSON↔chunk, "
+            "JSON↔HTML, native CER). HARD only on a definite repetition loop or "
+            "≥2 independent source disagreements (native CER counts as one and is "
+            "applied only on reliable+aligned prose pages); score = mean of sub-parts.",
             example=example,
             locations=locations,
             evidence=evidence,
+            submetrics=sub,
             justification=(
-                f"Worst-of agreement score {score:.0f}/100 across {len(subscores)} "
-                f"sub-part(s) ({', '.join(parts)})"
-                + (" — HARD repetition/native flag." if hard else ".")
+                f"Agreement {score:.0f}/100 across {len(sub)} sub-metric(s); "
+                f"{artefact_fail} artefact disagreement(s)"
+                + (" — DEFINITE." if hard else " — soft/consistent.")
             ),
-            reliability="low" if self.low_reliability(page, ctx) else "high",
+            reliability="high",  # cross-source agreement applies to any page type
             hard_fail=hard,
         )

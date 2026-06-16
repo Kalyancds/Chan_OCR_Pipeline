@@ -69,19 +69,31 @@ pages — the parser detects the offset and attributes signals only when unambig
 nouns (Nemluvio, Galderma, Gemeinsamer…) pass via a whitelist + pronounceability gate.
 **Tables/figures are not scored as prose** — they have their own structural metrics.
 
-### Scoring & verdict
+### Scoring & verdict (tier-based — tuned to cut false positives)
 
-- **PQS** (page) = weighted sum of available metric scores; weights renormalise over the
-  metrics that applied.
-- **DQS** (document) = token-weighted mean of PQS (small pages can't dominate).
-- A page is **faulty** if `PQS < T_page` **or** any **HARD** condition fires:
-  `inference_failed` on a content block · mojibake above bound · repetition loop ·
-  `LVR < 0.80` · native CER `> 0.25` · block-count mismatch beyond tolerance.
-- **DOCUMENT VERDICT = PASSED** iff `DQS ≥ T_doc` **and** faulty ratio `≤ doc_flag_ratio`
-  **and** no page hit a HARD condition. Otherwise **FAILED**, with a numeric reason and the
-  exact named rule(s) that caused it. *Deterministic: same inputs → same verdict & wording.*
+Metrics are split into two tiers so a single weak statistical signal never forces review:
 
-All thresholds and weights are editable live in the **sidebar** (Sec 9 defaults pre-filled).
+- **DEFINITE (hard) triggers** — one is enough to flag a page: `inference_failed` content
+  (IFR) · major block/page-count mismatch (BCC) · empty content blocks (EMP) · markup that
+  breaks extraction (HMW) · unexpected duplicate page (DUP) · mojibake/encoding corruption
+  (CED) · **XSA** = definite repetition loop / reliable native-CER mismatch / **≥2 independent
+  artefact disagreements** · severe geometry or table **content loss** (BGC/TSI).
+- **SOFT signals** (LVR, OOV, WSA, PPL, TTR, PSW, SFC, KL-divergence) are supporting evidence
+  only — they apply **only on prose-bearing pages with enough text** and flag a page **only
+  when ≥ `soft_fail_threshold` (default 3) fail together**.
+
+- **PQS** (page) = weighted mean of applicable metric scores; **DQS** (document) =
+  token-weighted mean of PQS.
+- **Page → review** if (1 DEFINITE failure) **or** (≥ `soft_fail_threshold` soft failures)
+  **or** `PQS < pqs_backstop` (safety net).
+- **DOCUMENT = PASSED** iff `DQS ≥ T_doc` **and** faulty ratio ≤ `doc_flag_ratio` **and** no
+  page hit a DEFINITE condition. *Deterministic: same inputs → same verdict & wording.*
+
+**Decision-support context** (per page, shown in the UI/report): page type
+(prose/table/image/title/list), token count, text density, **native-text reliability** (gates
+CER/WER), reading-order confidence, and the **XSA sub-metric breakdown**.
+
+All thresholds and weights are editable live in the **sidebar**.
 
 ---
 

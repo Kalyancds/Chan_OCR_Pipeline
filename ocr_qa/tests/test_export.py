@@ -39,7 +39,7 @@ def test_package_contents(tmp_path):
         assert data["document_verdict"] == "FAILED"
         assert data["faulty_pages"], "expected faulty pages in package"
         page = data["faulty_pages"][0]
-        assert "metrics" in page and len(page["metrics"]) == 14
+        assert "metrics" in page and len(page["metrics"]) == 17
         # every metric carries evidence + justification
         assert all("evidence" in m for m in page["metrics"])
         assert page["problems"], "faulty page must carry numeric problems"
