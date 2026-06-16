@@ -192,25 +192,35 @@ class XSAMetric(BaseMetric):
             else:
                 evidence.append(f"JSON↔HTML similarity {html_sim * 100:.0f}%")
 
-        # (c) native CER/WER — ONLY when the native text layer is reliable --
+        # (c) native CER/WER — only when native is reliable+aligned AND the page
+        #     is prose (CER vs full native text on table/short pages is noise).
+        #     It is the LEAST trustworthy source, so it COUNTS AS ONE artefact
+        #     disagreement (needs corroboration); it is never a standalone hard.
         nat = None
-        cer_hard = False
+        cer_fail = False
         if native_text and native_text.strip():
-            if native_ok:
+            if native_ok and ctx.is_prose_page(page.page_no):
                 nat = _native_agreement(text, native_text)
                 if nat is not None:
                     sub["native_cer"] = lerp_score(nat["cer"], 0.02, cfg.xsa_cer_bad * 2)
-                    cer_hard = nat["cer"] > cfg.xsa_cer_bad
-                    evidence.append(
-                        f"CER {nat['cer'] * 100:.1f}%, WER {nat['wer'] * 100:.1f}% "
-                        f"vs native text" + (" (> bound)" if cer_hard else ""))
+                    cer_fail = nat["cer"] > cfg.xsa_cer_bad
+                    if cer_fail:
+                        artefact_fail += 1
+                        evidence.append(
+                            f"CER {nat['cer'] * 100:.1f}% (> {cfg.xsa_cer_bad * 100:.0f}%) "
+                            f"vs native text — counts as one artefact disagreement")
+                    else:
+                        evidence.append(
+                            f"CER {nat['cer'] * 100:.1f}%, WER {nat['wer'] * 100:.1f}% "
+                            f"vs native text")
             else:
-                evidence.append("native text layer unreliable/unaligned — "
-                                "CER/WER skipped (gated)")
+                evidence.append("native CER/WER skipped — native layer unreliable/"
+                                "misaligned or non-prose page (avoids false positives)")
 
-        # ---- new HARD rule: definite repetition OR reliable native CER OR
-        #      >=2 independent artefact-agreement failures (no worst-of gating) -
-        hard = bool(rep["hard"]) or (cer_hard and native_ok) or (artefact_fail >= 2)
+        # ---- HARD rule: a definite repetition loop, OR >=2 INDEPENDENT artefact
+        #      disagreements (JSON vs MD/chunk/HTML/native). A lone native-CER or
+        #      single-artefact mismatch is NOT a hard fail (false-positive fix). -
+        hard = bool(rep["hard"]) or (artefact_fail >= 2)
 
         # score: MEAN of available sub-parts (not worst-of, so one weak check
         # no longer collapses XSA); clamped low when a hard condition fires.
@@ -231,20 +241,17 @@ class XSAMetric(BaseMetric):
             example = (f"The phrase '{rep['longest_span']}' repeats "
                        f"{rep['max_ngram_count']}× (> {cfg.xsa_repeat_max}) — a definite "
                        f"hallucination loop, so the page is flagged.")
-        elif cer_hard:
-            example = (f"Against the (reliable) native PDF text the OCR has "
-                       f"{nat['cer'] * 100:.0f}% character error (> "
-                       f"{cfg.xsa_cer_bad * 100:.0f}%).")
         elif artefact_fail >= 2:
-            example = (f"{artefact_fail} independent artefact checks disagree "
-                       f"(JSON vs MD/chunk/HTML) — multiple sources lost content, so "
-                       f"this is treated as a definite cross-source failure.")
+            example = (f"{artefact_fail} independent sources disagree (among JSON vs "
+                       f"MD/chunk/HTML and native CER) — multiple sources lost content, "
+                       f"so this is a definite cross-source failure.")
         elif artefact_fail == 1:
-            example = ("Only one artefact disagrees — recorded as a soft signal, NOT "
-                       "a hard failure (a single weak sub-check no longer forces review).")
+            example = ("Only one source disagrees" + (" (native CER)" if cer_fail else "")
+                       + " — recorded as a soft signal, NOT a hard failure (a single "
+                       "weak sub-check no longer forces review).")
         else:
-            example = ("No repetition loop and the JSON/MD/chunk/HTML texts agree → "
-                       "the page is internally consistent.")
+            example = ("No repetition loop and the sources agree → the page is "
+                       "internally consistent.")
 
         return self.result(
             raw_value=rep["trigram_rep"],
@@ -259,9 +266,9 @@ class XSAMetric(BaseMetric):
                 "native_reliable": native_ok,
             },
             how_computed="split sub-metrics (repetition, JSON↔MD, JSON↔chunk, "
-            "JSON↔HTML, native CER). HARD only on a definite repetition loop, a "
-            "reliable native-CER mismatch, or ≥2 independent artefact "
-            "disagreements; score = mean of sub-parts.",
+            "JSON↔HTML, native CER). HARD only on a definite repetition loop or "
+            "≥2 independent source disagreements (native CER counts as one and is "
+            "applied only on reliable+aligned prose pages); score = mean of sub-parts.",
             example=example,
             locations=locations,
             evidence=evidence,

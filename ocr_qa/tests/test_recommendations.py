@@ -148,6 +148,26 @@ def test_xsa_native_cer_not_hard_when_misaligned():
     assert res.hard_fail is False
 
 
+def test_xsa_lone_native_cer_not_hard():
+    """A reliable+aligned-prose native CER mismatch, with everything else
+    agreeing, must NOT hard-fail on its own — native CER now corroborates (needs
+    a 2nd independent disagreement). This is the financial/clinical-slide
+    false-positive fix."""
+    res, _ = _xsa_for([_page([_text_block(WORDS)])], native=OTHER,
+                      native_reliable=True)
+    assert "native_cer" in res.submetrics       # native applied (prose + reliable)
+    assert res.submetrics["native_cer"] < 50    # high CER
+    assert res.hard_fail is False               # but alone => NOT hard
+
+
+def test_xsa_native_plus_one_artefact_is_hard():
+    """Native CER + one artefact disagreement = 2 independent sources => hard."""
+    md = "1------------------------------------------------\n" + OTHER  # MD diverges
+    res, _ = _xsa_for([_page([_text_block(WORDS)])], md=md, native=OTHER,
+                      native_reliable=True)
+    assert res.hard_fail is True
+
+
 def test_xsa_not_worst_of():
     # one zero sub-part should not collapse the whole XSA score to 0
     md = "1------------------------------------------------\n" + OTHER
