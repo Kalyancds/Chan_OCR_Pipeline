@@ -240,6 +240,18 @@ def test_soft_metrics_gated_on_non_prose_page():
     assert m[0]["SFC"].reliability == "low"
 
 
+def test_weight_change_affects_dqs_on_recompute():
+    """Re-analyze relies on weights flowing into the score: recomputing the same
+    parsed pages with different weights must change DQS."""
+    pages = _load("bad_page")
+    dqs_default = build_document_report(pages, None, Config()).document_score
+    heavy = Config(weights={k: (0.5 if k == "IFR" else 0.01) for k in
+                            ["IFR", "BCC", "BGC", "EMP", "HMW", "TSI", "FIG", "LVR",
+                             "OOV", "SFC", "CED", "PPL", "TTR", "WSA", "PSW", "XSA", "DUP"]})
+    dqs_heavy = build_document_report(_load("bad_page"), None, heavy).document_score
+    assert dqs_default != dqs_heavy
+
+
 def test_clean_doc_passes_and_garbled_fails():
     assert build_document_report(_load("good_page"), None, Config()).document_verdict == "PASSED"
     assert build_document_report(_load("bad_page"), None, Config()).document_verdict == "FAILED"

@@ -119,7 +119,44 @@ def sidebar_config() -> Config:
         cfg.weights = weights
         st.caption(f"Σ weights = {sum(weights.values()):.2f} (renormalised at runtime)")
 
+    # ---- re-analyze with current settings (no re-upload / re-parse needed) ----
+    st.sidebar.divider()
+    if st.session_state.get("pages"):
+        st.sidebar.markdown("**🔄 Re-run with current settings**")
+        st.sidebar.caption(
+            "Edit the weights/thresholds above, then click. Your edits only take "
+            "effect when you click — the analysis never restarts mid-edit."
+        )
+        if st.sidebar.button("🔄 Re-analyze", type="primary", use_container_width=True):
+            _rerun_analysis(cfg)
+    else:
+        st.sidebar.caption("Run an analysis (Ingest tab) to enable re-analyze with "
+                           "adjusted weights.")
+
     return cfg
+
+
+def _rerun_analysis(cfg: Config) -> None:
+    """Recompute the report from the already-parsed pages using the current
+    sidebar weights/thresholds — no re-upload, no re-parse, no re-render."""
+    ss = st.session_state
+    if not ss.get("pages"):
+        return
+    bar = st.sidebar.progress(0.0, text="Re-analyzing…")
+    total = len(ss.pages)
+
+    def cb(i, tot, page_no):
+        bar.progress(i / tot, text=f"Page {i}/{tot} — re-scoring (17 metrics)")
+
+    doc = build_document_report(ss.pages, ss.ingested, cfg, progress_cb=cb)
+    bar.empty()
+    ss.doc = doc
+    ss.config = cfg
+    ss.human_calls = {}
+    ss.faulty_pick = doc.faulty_pages[0] if doc.faulty_pages else None
+    ss.passed_pick = None
+    ss.stage = "Faulty Pages" if doc.faulty_pages else "Verdict"
+    st.rerun()
 
 
 # --------------------------------------------------------------------------- #

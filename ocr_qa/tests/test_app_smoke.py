@@ -94,6 +94,28 @@ def test_faulty_page_shows_image_and_md(tmp_path):
     assert not at.exception, f"faulty view raised: {at.exception}"
 
 
+def test_reanalyze_button_recomputes_from_pages():
+    """Post-analysis, the sidebar Re-analyze button recomputes from the parsed
+    pages (no re-upload) and updates the report without error."""
+    pages, doc = _doc("bad_page")
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    _seed(at, pages, doc)
+    at.run()
+    btns = [b for b in at.sidebar.button if "Re-analyze" in str(b.label)]
+    assert btns, "Re-analyze button should appear after analysis"
+    btns[0].click()
+    at.run()
+    assert not at.exception
+    assert at.session_state["doc"] is not None
+
+
+def test_no_reanalyze_button_before_analysis():
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.run()
+    assert not any("Re-analyze" in str(b.label) for b in at.sidebar.button)
+
+
 def test_clean_doc_passes_verdict():
     pages, doc = _doc("good_page")
     at = AppTest.from_file(APP, default_timeout=60)
